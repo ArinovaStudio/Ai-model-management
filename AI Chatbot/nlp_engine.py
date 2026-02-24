@@ -8,13 +8,18 @@ class NLPProcessor:
         self.classifier = pipeline("zero-shot-classification", 
                                    model="typeform/distilbert-base-uncased-mnli")
         
-        # Natural English mapping for the AI
+        # 1. EXPANDED INTENTS
         self.intent_mapping = {
             "checking the latest assigned task": "LAST_TASK_ASSIGNED",
             "checking completed work or finished tasks": "CHECK_COMPLETED_WORK",
-            "checking overall project status": "PROJECT_STATUS",
-            "checking user login status": "CHECK_LOGIN_STATUS",
-            "checking client interaction history": "CLIENT_INTERACTION_HISTORY"
+            "checking overall project status or progress": "PROJECT_STATUS",
+            "checking user login status or if online": "CHECK_LOGIN_STATUS",
+            "checking what time an employee logged out": "CHECK_CLOCK_OUT_TIME",
+            "getting a figma design link or project asset": "GET_PROJECT_ASSET",
+            "checking the daily work summary of an employee": "GET_EMPLOYEE_SUMMARY",
+            "checking if project daily summary is updated": "CHECK_PROJECT_SUMMARY",
+            "getting an employee's github profile or username": "GET_GITHUB_PROFILE",
+            "checking the latest assigned project": "LAST_PROJECT_ASSIGNED"
         }
         self.intents = list(self.intent_mapping.keys())
 
@@ -32,23 +37,34 @@ class NLPProcessor:
         """Identifies the intent using a hybrid Keyword + AI approach."""
         query_lower = query.lower()
         
-        # 1. Keyword Overrides (Guarantees 100% accuracy for common queries)
-        if "assigned" in query_lower or "latest task" in query_lower or "new task" in query_lower:
+        # KEYWORD OVERRIDES
+        if "figma" in query_lower or "design" in query_lower or "asset" in query_lower:
+            return "GET_PROJECT_ASSET", 1.0
+        elif "github" in query_lower:
+            return "GET_GITHUB_PROFILE", 1.0
+        elif "logged out" in query_lower or "clock out" in query_lower:
+            return "CHECK_CLOCK_OUT_TIME", 1.0
+        elif "login" in query_lower or "logged in" in query_lower or "online" in query_lower:
+            return "CHECK_LOGIN_STATUS", 1.0
+        elif "summary" in query_lower and "project" in query_lower:
+            return "CHECK_PROJECT_SUMMARY", 1.0
+        elif "summary" in query_lower and ("work" in query_lower or "today" in query_lower):
+            return "GET_EMPLOYEE_SUMMARY", 1.0
+            
+        # ---> CRITICAL FIX: 'project' rule MUST be above the generic 'assign' rule! <---
+        elif "project" in query_lower and "assign" in query_lower:
+            return "LAST_PROJECT_ASSIGNED", 1.0
+            
+        elif "assign" in query_lower or "last task" in query_lower or "latest task" in query_lower:
             return "LAST_TASK_ASSIGNED", 1.0
             
-        elif "completed" in query_lower or "finished" in query_lower or "done" in query_lower:
+        elif "completed" in query_lower or "finished" in query_lower:
             return "CHECK_COMPLETED_WORK", 1.0
-            
         elif "status" in query_lower or "progress" in query_lower:
             return "PROJECT_STATUS", 1.0
 
-        # 2. Fallback to HuggingFace AI for complex/weird phrasing
-        result = self.classifier(
-            query, 
-            self.intents,
-            hypothesis_template="This text is about {}."
-        )
-        
+        # Fallback to AI
+        result = self.classifier(query, self.intents, hypothesis_template="This text is about {}.")
         best_match_english = result['labels'][0]
         confidence = result['scores'][0]
         
@@ -65,7 +81,7 @@ class NLPProcessor:
         }
 
         for ent in doc.ents:
-            if ent.label_ == "PERSON":
+            if ent.label_ in ["PERSON", "ORG", "GPE"]:
                 entities["assignees"].append(ent.text)
             elif ent.label_ in ["DATE", "TIME"]:
                 entities["dates"].append(ent.text)
@@ -82,7 +98,6 @@ class NLPProcessor:
         return entities
 
     def process_query(self, query):
-        """Runs the full NLP pipeline."""
         intent, confidence = self.identify_intent(query)
         entities = self.extract_entities(query)
         
