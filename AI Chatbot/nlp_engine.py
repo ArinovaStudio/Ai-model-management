@@ -19,7 +19,10 @@ class NLPProcessor:
             "checking the daily work summary of an employee": "GET_EMPLOYEE_SUMMARY",
             "checking if project daily summary is updated": "CHECK_PROJECT_SUMMARY",
             "getting an employee's github profile or username": "GET_GITHUB_PROFILE",
-            "checking the latest assigned project": "LAST_PROJECT_ASSIGNED"
+            "checking the latest assigned project": "LAST_PROJECT_ASSIGNED",
+            "getting a list of currently active or logged in employees": "GET_ACTIVE_EMPLOYEES",
+            "getting a list of all active or current projects": "GET_ALL_PROJECTS"
+    
         }
         self.intents = list(self.intent_mapping.keys())
 
@@ -62,6 +65,10 @@ class NLPProcessor:
             return "CHECK_COMPLETED_WORK", 1.0
         elif "status" in query_lower or "progress" in query_lower:
             return "PROJECT_STATUS", 1.0
+        elif "active" in query_lower and ("employee" in query_lower or "list" in query_lower):
+            return "GET_ACTIVE_EMPLOYEES", 1.0
+        elif "project" in query_lower and ("all" in query_lower or "list" in query_lower or "what are" in query_lower):
+            return "GET_ALL_PROJECTS", 1.0
 
         # Fallback to AI
         result = self.classifier(query, self.intents, hypothesis_template="This text is about {}.")
