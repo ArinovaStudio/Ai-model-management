@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Management Voice Chatbot</title>
+</head>
+<body>
+
+<h2>AI Management Chatbot</h2>
+
+<input type="text" id="messageInput" placeholder="Type or Speak..." />
+<button onclick="startListening()">🎤 Speak</button>
+<button onclick="sendMessage()">Send</button>
+
+<p><strong>Conversation:</strong></p>
+<div id="response"></div>
+
+<script>
+
+let recognition;
+
+// ----------------------
+// Speech Recognition
+// ----------------------
+function startListening() {
+
+    const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+        alert("Speech Recognition not supported. Please use Google Chrome.");
+        return;
+    }
+
+    recognition = new SpeechRecognition();
+    recognition.lang = "en-IN";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.start();
+
+    recognition.onresult = function (event) {
+        const transcript = event.results[0][0].transcript;
+        document.getElementById("messageInput").value = transcript;
+        sendMessage();
+    };
+
+    recognition.onerror = function (event) {
+        console.error("Speech recognition error:", event.error);
+    };
+}
+
+
+// ----------------------
+// Send Message to Backend
+// ----------------------
+async function sendMessage() {
+
+    const input = document.getElementById("messageInput");
+    const message = input.value.trim();
+
+    if (!message) return;
+
+    const responseBox = document.getElementById("response");
+
+    try {
+
+        const response = await fetch("http://127.0.0.1:8000/api/chat", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ query: message })
+        });
+
+        const data = await response.json();
+
+        // Append user query
+        responseBox.innerHTML += "<p><strong>You:</strong> " + message + "</p>";
+
+        // Append bot reply
+        responseBox.innerHTML += "<p><strong>Bot:</strong> " + data.reply + "</p>";
+
+    } catch (error) {
+        responseBox.innerHTML += "<p><strong>Bot:</strong> Backend connection error.</p>";
+        console.error(error);
+    }
+
+    input.value = "";  // Clears only input field
+}
+
+</script>
+
+</body>
+</html>
