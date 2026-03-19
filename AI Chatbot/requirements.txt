@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+prisma
+pydantic
+spacy
+pytz
