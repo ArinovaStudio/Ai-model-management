@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+websockets
+pydantic
+prisma
+pytz
+thefuzz
+python-Levenshtein
+deep-translator
+spacy
+transformers
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch

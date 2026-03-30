@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: ai_chatbot_app
+    ports:
+      - "8000:8000"
+    environment:
+      # Connects directly to your live Arinova database
+      - DATABASE_URL=postgresql://arinova:arinova.studio@72.61.241.59:5432/managment
+    restart: always
