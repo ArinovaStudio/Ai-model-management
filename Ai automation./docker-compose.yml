@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  # 1. Your FastAPI Backend
+  api:
+    build: .
+    container_name: client_reporting_api
+    ports:
+      - "8005:8000"
+    environment:
+      # Tells the Python library to look for Ollama on the Docker network, not localhost
+      - OLLAMA_HOST=http://ollama:11434
+    volumes:
+      # Maps your local folder so changes to code/database sync instantly
+      - .:/app
+    depends_on:
+      - ollama
+
+  # 2. The Ollama AI Engine
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      # Saves the downloaded LLM models so you don't have to re-download them on restart
+      - ollama_data:/root/.ollama
+
+volumes:
+  ollama_data:
