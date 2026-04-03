@@ -42,12 +42,22 @@ class NLP:
         doc = self.nlp(text)
         names = [e.text for e in doc.ents if e.label_ in ['PERSON', 'ORG', 'GPE']]
         
+        # [BUG #6 FIXED] - Filter names using capitalized tokens and remove question words
         if not names:
             ignore_words = ["login", "logout", "attendance", "report", "show", "give", "list", "time", "of", "for", "in", "the"]
-            for w in txt.split():
-                if w not in ignore_words and len(w) > 3 and w.isalpha():
-                    names.append(w)
-                    break
+            question_words = ['what', 'who', 'when', 'how', 'show', 'give', 'list']
+            
+            candidates = [
+                w for w in text.split()
+                if w[0].isupper()
+                and w.lower() not in ignore_words
+                and len(w) > 2
+                and w.isalpha()
+            ]
+            candidates = [w for w in candidates if w.lower() not in question_words]
+            
+            if candidates:
+                names.append(candidates[0])
                     
         # Client name fallback
         if not names and 'client' in txt:
@@ -63,7 +73,6 @@ class NLP:
                 mnt_val = months[m]
                 break
 
-        # 🟢 CRITICAL: This matches exactly what main.py is looking for
         return {
             "table": tbl,
             "target": names[0] if names else None,
