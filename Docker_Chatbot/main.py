@@ -1,5 +1,5 @@
 import json, calendar, pytz
-from datetime import datetime
+from datetime import datetime, date
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,7 +31,7 @@ html_content = """
 <head><style>body{font-family:sans-serif; background:#f4f7f6; display:flex; justify-content:center; padding-top:50px;} .box{width:600px; background:white; padding:20px; border-radius:10px; box-shadow:0 4px 15px rgba(0,0,0,0.1);} #log{height:400px; overflow-y:auto; border:1px solid #ddd; padding:15px; margin-bottom:15px; background:#f9fbfc;} input{flex-grow:1; padding:10px; border:1px solid #ccc; border-radius:4px;} button{padding:10px 20px; background:#007bff; color:white; border:none; cursor:pointer;} #mic{background:#28a745; font-size:18px; border-radius:50%;} .rec{background:#dc3545 !important;}</style></head>
 <body>
     <div class="box">
-        <h2>🎙️ Voice AI Hub</h2>
+        <h2>🎙️ Chatbot AI Hub</h2>
         <div id="log"></div>
         <div style="display:flex; gap:10px;">
             <button id="mic" onclick="startMic()">🎤</button>
@@ -77,16 +77,12 @@ async def handle_query(query: str, ctx: dict):
     elif ctx.get('last_tgt') and any(p in eq.lower() for p in ["he", "she", "him", "her", "their"]):
         tgt = ctx['last_tgt']
 
-    users = await db.user.find_many()
-    u_names = [u.name for u in users if u.name]
-    
-    if tgt and u_names:
-        m, s = process.extractOne(tgt, u_names)
-        if s > 70: tgt = m
-
     usr = None
     if tgt:
-        try: usr = await db.user.find_first(where={"name": {"contains": tgt, "mode": "insensitive"}})
+        # [BUG #5 FIXED] - Replaced full table scan and fuzzy match with direct indexed DB query
+        try:
+            usr = await db.user.find_first(where={"name": {"contains": tgt, "mode": "insensitive"}})
+            if usr: tgt = usr.name
         except: pass
 
     # --- TEAMMATE'S SPECIFIC LOGIC BLOCKS (Catches Math & Formatting) ---
@@ -101,12 +97,20 @@ async def handle_query(query: str, ctx: dict):
         if not rec or not rec.clockIn: return "Login record not found."
         
         try:
-            l_time = datetime.strptime(rec.clockIn, "%I:%M %p")
+            # [BUG #4 FIXED] - Use date.today() to prevent the 1900-01-01 historical timezone bug
+            today = date.today()
+            parsed_time = datetime.strptime(rec.clockIn, "%I:%M %p").time()
+            login_time = datetime.combine(today, parsed_time)
+            
+            ist = pytz.timezone("Asia/Kolkata")
+            dt_ist = ist.localize(login_time)
+
             if "usa" in raw_q or "pst" in raw_q:
-                dt_conv = pytz.timezone("Asia/Kolkata").localize(l_time).astimezone(pytz.timezone("US/Pacific"))
+                dt_conv = dt_ist.astimezone(pytz.timezone("US/Pacific"))
                 return f"{usr.name} logged in at {dt_conv.strftime('%I:%M %p')} PST"
-            return f"{usr.name} logged in at {l_time.strftime('%I:%M %p')} IST"
-        except: return f"{usr.name} logged in at {rec.clockIn}"
+            return f"{usr.name} logged in at {dt_ist.strftime('%I:%M %p')} IST"
+        except Exception as e:
+            return f"{usr.name} logged in at {rec.clockIn}"
 
     if tbl == "workhours" and ("attendance" in raw_q or "report" in raw_q):
         if not usr: return "Please specify an employee for the report."
@@ -127,10 +131,8 @@ async def handle_query(query: str, ctx: dict):
     # 🟢 THE FIX: BULLETPROOF PAYOUT LOGIC
     if tbl == "payoutschedule" and usr:
         try:
-            # Removed order={"createdAt": "desc"} so it doesn't crash on schemas without that column!
             sched = await db.payoutschedule.find_first(where={"userId": usr.id})
             
-            # Safely calculate total past payouts
             hist = []
             try: hist = await db.payout.find_many(where={"userId": usr.id})
             except: pass
@@ -142,15 +144,12 @@ async def handle_query(query: str, ctx: dict):
                     except: pass
 
             if sched:
-                # Safely format the date, even if it's stored as a string instead of a datetime object
                 nd = "Not set"
                 if hasattr(sched, 'nextPayoutDate') and sched.nextPayoutDate:
                     try: nd = sched.nextPayoutDate.strftime("%d %b %Y")
                     except: nd = str(sched.nextPayoutDate).split(' ')[0]
                 
                 na = getattr(sched, 'nextAmount', 0)
-                
-                # Formatted exactly like your requested screenshot!
                 return f"{usr.name.upper()}'s payout: Next Date: {nd} Next Amount: ₹{na} Total Paid: ₹{tot}"
             
             elif tot > 0: 
@@ -213,21 +212,27 @@ async def handle_query(query: str, ctx: dict):
 # ENDPOINTS
 # ==========================================
 class Req(BaseModel): query: str
-mem = {"last_tgt": None}
 
 @app.post("/api/chat")
 async def chat_api(req: Req):
-    return {"reply": await handle_query(req.query, mem)}
+    # [BUG #2 FIXED] - Context initialized per-request to prevent state leakage
+    ctx = {"last_tgt": None}
+    return {"reply": await handle_query(req.query, ctx)}
 
 @app.websocket("/ws/chat")
 async def chat_ws(websocket: WebSocket):
-    await ws.accept()
+    # [BUG #1 FIXED] - Replaced `ws` with `websocket` to prevent NameError
+    await websocket.accept()
     ws_mem = {"last_tgt": None}
     try:
         while True:
-            d = json.loads(await ws.receive_text())
-            if "query" in d: await ws.send_json({"reply": await handle_query(d["query"], ws_mem)})
-    except: pass
+            d = json.loads(await websocket.receive_text())
+            if "query" in d: await websocket.send_json({"reply": await handle_query(d["query"], ws_mem)})
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"WS error: {e}")
+        await websocket.close(code=1011)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", port=8000, reload=True)
