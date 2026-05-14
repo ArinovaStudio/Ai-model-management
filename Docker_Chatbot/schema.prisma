@@ -10,9 +10,9 @@ datasource db {
 }
 
 model User {
-  id                                                String            @id @default(cuid())
-  employeeId                                        String?           @unique
-  email                                             String            @unique
+  id                                                String                 @id @default(cuid())
+  employeeId                                        String?                @unique
+  email                                             String                 @unique
   name                                              String
   password                                          String
   workingAs                                         String?
@@ -21,14 +21,14 @@ model User {
   bio                                               String?
   image                                             String?
   dob                                               String?
-  isLogin                                           Boolean           @default(false)
-  createdAt                                         DateTime          @default(now())
+  isLogin                                           Boolean                @default(false)
+  createdAt                                         DateTime               @default(now())
   updatedAt                                         DateTime
   faceDescriptor                                    String?
-  isDev                                             Boolean?          @default(false)
+  isDev                                             Boolean?               @default(false)
   githubProfile                                     String?
   joiningDate                                       DateTime?
-  roleId                                            String?
+  subRoleId                                         String?
   BankDetails                                       BankDetails?
   Break                                             BreakRecord[]
   CalendarEvent                                     CalendarEvent[]
@@ -46,8 +46,8 @@ model User {
   MultiTaskUser                                     MultiTaskUser[]
   Notification                                      Notification[]
   PaymentMethod                                     PaymentMethod[]
-  PaymentRequest_PaymentRequest_requestedByIdToUser PaymentRequest[]  @relation("PaymentRequest_requestedByIdToUser")
-  PaymentRequest_PaymentRequest_requestedToIdToUser PaymentRequest[]  @relation("PaymentRequest_requestedToIdToUser")
+  PaymentRequest_PaymentRequest_requestedByIdToUser PaymentRequest[]       @relation("PaymentRequest_requestedByIdToUser")
+  PaymentRequest_PaymentRequest_requestedToIdToUser PaymentRequest[]       @relation("PaymentRequest_requestedToIdToUser")
   PaymentTicket                                     PaymentTicket[]
   Payout                                            Payout[]
   PayoutSchedule                                    PayoutSchedule?
@@ -55,8 +55,9 @@ model User {
   ProjectMember                                     ProjectMember[]
   TicketMessage                                     TicketMessage[]
   TodoTask                                          TodoTask[]
-  Role                                              Role?             @relation(fields: [roleId], references: [id])
+  SubRole                                           SubRole?               @relation(fields: [subRoleId], references: [id])
   UserLeaves                                        UserLeaves?
+  UserPreferredTimezone                             UserPreferredTimezone?
   UserTimezone                                      UserTimezone?
   WorkHours                                         WorkHours[]
   leaveReq                                          leaveReq[]
@@ -840,13 +841,33 @@ model Navigation {
 }
 
 model Role {
-  id         String   @id
-  name       String   @unique
-  parentId   String?
-  createdAt  DateTime @default(now())
-  Role       Role?    @relation("RoleToRole", fields: [parentId], references: [id])
-  other_Role Role[]   @relation("RoleToRole")
-  User       User[]
+  id        String    @id
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  SubRole   SubRole[]
+}
+
+model Notificationlist {
+  id           String  @id
+  title        String?
+  package      String? @unique
+  notification Json
+}
+
+model SubRole {
+  id        String   @id
+  name      String
+  roleId    String?
+  createdAt DateTime @default(now())
+  Role      Role?    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  User      User[]
+}
+
+model UserPreferredTimezone {
+  id     String @id
+  userId String @unique
+  code   String
+  User   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 enum BREAK_TYPE {
