@@ -1,0 +1,61 @@
+generator client {
+  provider             = "prisma-client-py"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id       Int       @id @default(autoincrement())
+  name     String
+  email    String    @unique
+  projects Project[]
+}
+
+model Project {
+  id          Int       @id @default(autoincrement())
+  name        String
+  description String?
+  clientId    Int
+  client      Client    @relation(fields: [clientId], references: [id])
+  tasks       Task[]
+}
+
+model Employee {
+  id            Int             @id @default(autoincrement())
+  name          String
+  email         String          @unique
+  role          String
+  tasks         Task[]
+  dailyUpdates  DailyUpdate[]
+  notifications Notification[]
+}
+
+model Task {
+  id          Int       @id @default(autoincrement())
+  title       String
+  status      String    @default("PENDING")
+  projectId   Int
+  employeeId  Int
+  project     Project   @relation(fields: [projectId], references: [id])
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+}
+
+model DailyUpdate {
+  id         Int      @id @default(autoincrement())
+  content    String
+  createdAt  DateTime @default(now())
+  employeeId Int
+  employee   Employee @relation(fields: [employeeId], references: [id])
+}
+
+model Notification {
+  id         Int      @id @default(autoincrement())
+  message    String
+  isRead     Boolean  @default(false)
+  employeeId Int
+  employee   Employee @relation(fields: [employeeId], references: [id])
+}
