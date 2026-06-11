@@ -1,0 +1,39 @@
+services:
+  # 1. Your FastAPI Server
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # CHANGED: Now points to the MySQL container on port 3306
+      - DATABASE_URL=mysql://user:password@db:3306/xyz_database
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - db
+      - ollama
+
+  # 2. Your XYZ Database (Now MySQL!)
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: xyz_database
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3307:3306"
+    volumes:
+      # CHANGED: New volume specifically for MySQL data
+      - mysql_data:/var/lib/mysql
+
+  # 3. Ollama AI Engine (Unchanged)
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  mysql_data:
+  ollama_data:
