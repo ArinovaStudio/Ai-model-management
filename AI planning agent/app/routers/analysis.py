@@ -111,6 +111,8 @@ def _risk_to_response(r: Any) -> RiskBlockageResponse:
         source_doc_id=r.sourceDocId,
         report_type=r.reportType,
         metadata=meta,
+        confidence_score=r.confidenceScore,
+        planning_warnings=r.planningWarnings,
         created_at=r.createdAt,
         updated_at=r.updatedAt,
     )

@@ -55,6 +55,23 @@ def _project_to_response(project: Any) -> ProjectResponse:
     feature_requests = getattr(project, "featureRequests", None) or []
     technologies = getattr(project, "technologies", None) or []
     risk_blockages = getattr(project, "riskBlockages", None) or []
+    resource_allocations = getattr(project, "resourceAllocations", None) or []
+    grouping_tasks = getattr(project, "groupingTasks", None) or []
+
+    wbs_tasks_count = 0
+    total_effort = 0.0
+    total_duration = 0.0
+    all_scores: list[float] = []
+    if grouping_tasks:
+        for g in grouping_tasks:
+            gtasks = getattr(g, "tasks", None) or []
+            wbs_tasks_count += len(gtasks)
+            total_effort += g.totalEffortHours or 0
+            total_duration += g.totalDurationDays or 0
+            for t in gtasks:
+                if t.complexityScore is not None:
+                    all_scores.append(float(t.complexityScore))
+    avg_complexity = sum(all_scores) / len(all_scores) if all_scores else 0.0
 
     return ProjectResponse(
         id=project.id,
@@ -67,6 +84,12 @@ def _project_to_response(project: Any) -> ProjectResponse:
         feature_requests_count=len(feature_requests),
         technologies_count=len(technologies),
         risk_blockages_count=len(risk_blockages),
+        grouping_tasks_count=len(grouping_tasks),
+        wbs_tasks_count=wbs_tasks_count,
+        resource_allocations_count=len(resource_allocations),
+        total_effort_hours=round(total_effort, 2),
+        total_duration_days=round(total_duration, 2),
+        avg_complexity_score=round(avg_complexity, 2),
         created_at=project.createdAt,
         updated_at=project.createdAt,
     )
@@ -105,6 +128,8 @@ async def create_project(body: ProjectCreate) -> ProjectResponse:
                 "featureRequests": True,
                 "technologies": True,
                 "riskBlockages": True,
+                "resourceAllocations": True,
+                "groupingTasks": {"include": {"tasks": True}},
             },
         )
 
@@ -134,6 +159,8 @@ async def list_projects() -> list[ProjectResponse]:
                 "featureRequests": True,
                 "technologies": True,
                 "riskBlockages": True,
+                "resourceAllocations": True,
+                "groupingTasks": {"include": {"tasks": True}},
             },
             order={"createdAt": "desc"},
         )
@@ -163,6 +190,8 @@ async def get_project(project_id: str) -> ProjectResponse:
                 "featureRequests": True,
                 "technologies": True,
                 "riskBlockages": True,
+                "resourceAllocations": True,
+                "groupingTasks": {"include": {"tasks": True}},
             },
         )
 
@@ -239,6 +268,8 @@ async def update_projectInfo(
                 "featureRequests": True,
                 "technologies": True,
                 "riskBlockages": True,
+                "resourceAllocations": True,
+                "groupingTasks": {"include": {"tasks": True}},
             },
         )
 

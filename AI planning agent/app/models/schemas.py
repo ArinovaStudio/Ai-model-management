@@ -92,6 +92,12 @@ class ProjectResponse(BaseModel):
     feature_requests_count: int = 0
     technologies_count: int = 0
     risk_blockages_count: int = 0
+    grouping_tasks_count: int = 0
+    wbs_tasks_count: int = 0
+    resource_allocations_count: int = 0
+    total_effort_hours: Optional[float] = 0
+    total_duration_days: Optional[float] = 0
+    avg_complexity_score: Optional[float] = 0
     created_at: datetime
     updated_at: datetime
 
@@ -174,6 +180,8 @@ class RiskBlockageResponse(BaseModel):
     source_doc_id: Optional[str] = None
     report_type: str
     metadata: Optional[dict[str, Any]] = None
+    confidence_score: Optional[float] = 0
+    planning_warnings: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -189,6 +197,227 @@ class GapAnalysisResponse(BaseModel):
     project_name: str
     reports: GapAnalysisReport
     summary: str
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WbsTaskResponse(BaseModel):
+    id: str
+    title: str
+    description: str
+    order: int = 0
+    status: str
+    priority: str
+    dependencies: Optional[list[str]] = None
+    estimated_hours: Optional[float] = None
+    complexity_score: Optional[float] = 0
+    effort_hours: Optional[float] = 0
+    duration_days: Optional[float] = 0
+    feature_request_id: Optional[str] = None
+    feature_request_title: Optional[str] = None
+    group_id: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WbsGroupResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    order: int = 0
+    feature_ids: Optional[list[str]] = None
+    tasks: list[WbsTaskResponse] = []
+    total_effort_hours: Optional[float] = 0
+    total_duration_days: Optional[float] = 0
+    avg_complexity_score: Optional[float] = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class WbsResponse(BaseModel):
+    project_id: str
+    project_name: str
+    groups: list[WbsGroupResponse]
+    total_groups: int
+    total_tasks: int
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WbsRequest(BaseModel):
+    reindex: bool = False
+
+
+class WbsTaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    assignee: Optional[str] = None
+    estimated_hours: Optional[float] = None
+    dependencies: Optional[list[str]] = None
+
+
+class EstimationRequest(BaseModel):
+    reindex: bool = False
+
+
+class TaskEstimateResponse(BaseModel):
+    task_id: str
+    task_title: str
+    complexity_score: float = 0
+    effort_hours: float = 0
+    duration_days: float = 0
+    estimated_hours: float = 0
+    dependencies: Optional[list[str]] = None
+
+
+class GroupEstimateResponse(BaseModel):
+    group_id: str
+    group_name: str
+    total_effort_hours: float = 0
+    total_duration_days: float = 0
+    avg_complexity_score: float = 0
+    task_count: int = 0
+    tasks: list[TaskEstimateResponse] = []
+
+
+class EstimationSummary(BaseModel):
+    total_effort_hours: float = 0
+    total_duration_days: float = 0
+    avg_complexity_score: float = 0
+    total_tasks: int = 0
+    total_groups: int = 0
+
+
+class EstimationResponse(BaseModel):
+    project_id: str
+    project_name: str
+    summary: EstimationSummary
+    groups: list[GroupEstimateResponse]
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ResourceAllocationResponse(BaseModel):
+    id: str
+    project_id: str
+    role: str
+    required_count: int = 1
+    allocated_hours: float = 0
+    workload_percentage: Optional[float] = 0
+    recommended_count: Optional[float] = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class ResourcePlanRequest(BaseModel):
+    reindex: bool = False
+
+
+class ResourcePlanResponse(BaseModel):
+    project_id: str
+    project_name: str
+    allocations: list[ResourceAllocationResponse]
+    total_team_size: int = 0
+    total_effort_hours: float = 0
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# --- Phase 7: Schedule ---
+
+
+class ScheduleRequest(BaseModel):
+    reindex: bool = False
+
+
+class MilestoneResponse(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    description: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    due_date: datetime
+    status: str = "PENDING"
+    created_at: datetime
+
+
+class SprintInfo(BaseModel):
+    sprint_number: int
+    group_id: str
+    group_name: str
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    total_effort_hours: float = 0
+    task_count: int = 0
+
+
+class ScheduledTaskInfo(BaseModel):
+    task_id: str
+    title: str
+    group_id: Optional[str] = None
+    scheduled_start: Optional[datetime] = None
+    scheduled_end: Optional[datetime] = None
+    duration_days: float = 0
+    dependencies: Optional[list[str]] = None
+
+
+class ScheduleWarning(BaseModel):
+    category: str
+    message: str
+    severity: str = "warning"
+
+
+class ScheduleResponse(BaseModel):
+    project_id: str
+    project_name: str
+    start_date: datetime
+    deadline: datetime
+    milestones: list[MilestoneResponse] = []
+    sprints: list[SprintInfo] = []
+    tasks: list[ScheduledTaskInfo] = []
+    warnings: list[ScheduleWarning] = []
+    feasible: bool = True
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# --- Phase 8: Validation & Confidence ---
+
+
+class ValidationRequest(BaseModel):
+    reindex: bool = False
+
+
+class ConfidenceReport(BaseModel):
+    score: float = 0
+    requirement_completeness: float = 0
+    document_coverage: float = 0
+    dependency_clarity: float = 0
+    timeline_feasibility: float = 0
+    technology_certainty: float = 0
+    max_score: float = 100
+
+
+class PlanningWarningInfo(BaseModel):
+    category: str
+    message: str
+    severity: str = "medium"
+
+
+class RiskAssessmentInfo(BaseModel):
+    risk_id: str
+    title: str
+    type: str
+    severity: str
+    status: str
+    confidence_impact: float = 0
+    warning: Optional[str] = None
+
+
+class ValidationResponse(BaseModel):
+    project_id: str
+    project_name: str
+    confidence: ConfidenceReport
+    warnings: list[PlanningWarningInfo] = []
+    risk_assessments: list[RiskAssessmentInfo] = []
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
