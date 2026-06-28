@@ -160,8 +160,8 @@ async def get_estimation(project_id: str) -> EstimationResponse:
                 )
             )
 
-        total_effort = sum(g.total_effort_hours or 0 for g in groups)
-        total_duration = sum(g.total_duration_days or 0 for g in groups)
+        total_effort = sum(g.totalEffortHours or 0 for g in groups)
+        total_duration = sum(g.totalDurationDays or 0 for g in groups)
         all_scores = [t.complexityScore or 0 for g in groups for t in (g.tasks or [])]
         avg_score = sum(all_scores) / len(all_scores) if all_scores else 0
 
