@@ -8,21 +8,32 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-EXTRACTION_SYSTEM_PROMPT = """You are an expert requirements analyst for software projects.
-Extract functional requirements, features, and user stories from the project document below.
-For each item, determine:
-  - title (short, descriptive)
-  - description (detailed explanation)
-  - category (one of: functional, non-functional, feature, user-story, bug-fix, enhancement)
-  - priority (one of: critical, high, medium, low)
-  - related_technologies (array of technology names mentioned in context of this requirement)
-  - ambiguous (boolean: true if the requirement is unclear, incomplete, or needs clarification)
-  - clarification_prompt (if ambiguous, a question to ask the user; otherwise null)
+EXTRACTION_SYSTEM_PROMPT = """You are an expert requirements analyst.
+Extract software functional requirements and features from the document.
+Ignore metadata, email headers, and greetings.
 
-Return ONLY valid JSON as an array of objects. No markdown, no code fences, no extra text.
-If no requirements are found, return an empty array [].
+For each feature, output a JSON object with:
+  - "title": (Max 5 words, e.g. "Secure Document Upload")
+  - "description": (Detailed explanation)
+  - "category": ("functional" or "feature")
+  - "priority": ("high", "medium", or "low")
+  - "related_technologies": (Array of technologies)
+  - "ambiguous": (boolean)
+  - "clarification_prompt": (string or null)
 
-Document content:
+Output ONLY a JSON array of these objects. Example:
+[
+  {
+    "title": "User Authentication System",
+    "description": "Users must be able to log in securely.",
+    "category": "functional",
+    "priority": "high",
+    "related_technologies": [],
+    "ambiguous": false,
+    "clarification_prompt": null
+  }
+]
+Do not write anything outside the JSON array.
 """
 
 CLARIFICATION_SYSTEM_PROMPT = """You are a requirements analyst helping to clarify ambiguous software requirements.

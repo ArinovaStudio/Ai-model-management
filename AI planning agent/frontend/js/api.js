@@ -1,4 +1,7 @@
-const API_BASE_URL = 'http://127.0.0.1:8000/api/v1/projects';
+const defaultBase = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost' 
+    ? 'http://127.0.0.1:8000/api/v1/projects' 
+    : '/api/v1/projects';
+const API_BASE_URL = window.API_BASE_URL || defaultBase;
 
 const api = {
     async getProjects() {
@@ -89,6 +92,24 @@ const api = {
         return res.json();
     },
 
+    async getEstimates(id) {
+        const res = await fetch(`${API_BASE_URL}/${id}/estimate`);
+        if (!res.ok) throw new Error('Failed to get estimates');
+        return res.json();
+    },
+
+    async getSchedule(id) {
+        const res = await fetch(`${API_BASE_URL}/${id}/schedule`);
+        if (!res.ok) throw new Error('Failed to get schedule');
+        return res.json();
+    },
+
+    async getResourcePlan(id) {
+        const res = await fetch(`${API_BASE_URL}/${id}/resource-plan`);
+        if (!res.ok) throw new Error('Failed to get resource plan');
+        return res.json();
+    },
+
     async validatePlan(id) {
         const res = await fetch(`${API_BASE_URL}/${id}/validate`, {
             method: 'POST',
@@ -99,11 +120,30 @@ const api = {
         return res.json();
     },
 
-    async searchContext(id, query) {
-        const res = await fetch(`${API_BASE_URL}/${id}/search?query=${encodeURIComponent(query)}`, {
+    async getValidation(id) {
+        const res = await fetch(`${API_BASE_URL}/${id}/validate`);
+        if (!res.ok) throw new Error('Failed to get validation');
+        return res.json();
+    },
+
+    async runGapAnalysis(id) {
+        const res = await fetch(`${API_BASE_URL}/${id}/gap-analysis`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reindex: true })
         });
+        if (!res.ok) throw new Error('Failed to run gap analysis');
+        return res.json();
+    },
+
+    async getGapAnalysis(id) {
+        const res = await fetch(`${API_BASE_URL}/${id}/gap-analysis`);
+        if (!res.ok) throw new Error('Failed to get gap analysis');
+        return res.json();
+    },
+
+    async searchContext(id, query) {
+        const res = await fetch(`${API_BASE_URL}/${id}/search?query=${encodeURIComponent(query)}`);
         if (!res.ok) throw new Error('Search failed');
         return res.json();
     }

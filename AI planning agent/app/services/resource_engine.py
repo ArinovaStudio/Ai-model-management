@@ -127,22 +127,35 @@ async def run_resource_planning(
             role_hours[role] = role_hours.get(role, 0) + split
 
     deadline = project.projectInfo.deadline if project.projectInfo else None
-    total_duration_days = 0.0
-    if deadline:
+    
+    min_start = None
+    max_end = None
+    for g in groups:
+        if g.sprintStart:
+            if not min_start or g.sprintStart < min_start:
+                min_start = g.sprintStart
+        if g.sprintEnd:
+            if not max_end or g.sprintEnd > max_end:
+                max_end = g.sprintEnd
+                
+    if min_start and max_end:
+        total_duration_days = (max_end - min_start).days
+    elif deadline:
         now = datetime.now(timezone.utc)
         if deadline.tzinfo is None:
             deadline = deadline.replace(tzinfo=timezone.utc)
         remaining = (deadline - now).total_seconds()
         total_duration_days = max(5.0, remaining / 86400.0)
     else:
-        max_duration = 0.0
-        for g in groups:
-            if g.totalDurationDays and g.totalDurationDays > max_duration:
-                max_duration = g.totalDurationDays
-        total_duration_days = max(10.0, max_duration)
-
+        total_duration_days = 14.0
+        
+    total_duration_days = max(10.0, float(total_duration_days))
+    
     total_effort = sum(role_hours.values())
-    available_per_person = HOURS_PER_PERSON_PER_DAY * total_duration_days
+    
+    # Calculate working days (exclude weekends)
+    working_days = total_duration_days * (5.0 / 7.0)
+    available_per_person = HOURS_PER_PERSON_PER_DAY * working_days
 
     stored_allocations: list[Any] = []
     for role in ROLES:

@@ -293,7 +293,7 @@ async def list_ambiguous_features(project_id: str) -> list[FeatureRequestRespons
         )
 
 
-@router.post(
+@router.get(
     "/{project_id}/search",
     response_model=SemanticSearchResponse,
 )

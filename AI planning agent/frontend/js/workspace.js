@@ -22,6 +22,14 @@ const workspace = {
             // If project already has WBS/Schedule generated, show plan state
             if (this.projectData.wbs_tasks_count > 0 || this.projectData.milestones_count > 0) {
                 this.showPlanState();
+                
+                try {
+                    const val = await window.api.getValidation(this.projectId);
+                    this.updateConfidenceBanner(val.confidence.score);
+                    // The getValidation endpoint might not return warnings from the DB history accurately if not stored, but let's try
+                    if (val.warnings) this.renderWarnings(val.warnings);
+                } catch(e) { console.warn("No validation data found"); }
+
                 await this.loadWBS();
             }
         } catch (error) {
@@ -80,8 +88,15 @@ const workspace = {
             const validation = await window.api.validatePlan(this.projectId);
             this.updateStep(6, 'done');
 
-            // Set Confidence Banner
+            this.updateStep(7, 'active');
+            try {
+                await window.api.runGapAnalysis(this.projectId);
+            } catch(e) { console.warn("Gap analysis failed/skipped", e); }
+            this.updateStep(7, 'done');
+
+            // Set Confidence Banner and Warnings
             this.updateConfidenceBanner(validation.confidence.score);
+            this.renderWarnings(validation.warnings);
             
             // Transition to Plan State
             setTimeout(() => {
@@ -118,6 +133,25 @@ const workspace = {
         else banner.classList.add('badge-neutral');
     },
 
+    renderWarnings(warnings) {
+        const container = document.getElementById('warnings-container');
+        if (!warnings || warnings.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+        container.style.display = 'flex';
+        container.innerHTML = '';
+        warnings.forEach(w => {
+            const color = w.severity === 'critical' ? '#dc3545' : (w.severity === 'high' ? '#ffc107' : '#17a2b8');
+            const textColor = w.severity === 'high' ? '#000' : '#fff';
+            container.innerHTML += `
+                <div style="background: ${color}; color: ${textColor}; padding: 0.75rem 1rem; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 500;">
+                    <strong>${w.category.toUpperCase()}:</strong> ${w.message}
+                </div>
+            `;
+        });
+    },
+
     showPlanState() {
         document.getElementById('setup-state').style.display = 'none';
         document.getElementById('plan-state').style.display = 'block';
@@ -135,6 +169,7 @@ const workspace = {
         // Lazy load data if needed
         if (tabName === 'schedule') this.loadSchedule();
         if (tabName === 'resources') this.loadResources();
+        if (tabName === 'risks') this.loadGapAnalysis();
     },
 
     async loadWBS() {
@@ -143,7 +178,7 @@ const workspace = {
         container.innerHTML = '<p>Loading WBS...</p>';
         try {
             // Using estimation endpoint since it includes task hours
-            const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${this.projectId}/estimate`).then(r => r.json());
+            const res = await window.api.getEstimates(this.projectId);
             container.innerHTML = '';
             
             res.groups.forEach(g => {
@@ -154,12 +189,17 @@ const workspace = {
                             <span class="badge badge-neutral">${g.total_effort_hours} hrs</span>
                         </div>
                         <div style="display: block;">
-                            ${g.tasks.map(t => `
+                            ${g.tasks.map(t => {
+                                const depHtml = t.dependencies && t.dependencies.length > 0 
+                                    ? '<span title="Depends on other tasks" style="cursor: help; margin-left: 0.5rem; font-size: 0.8rem;">🔗</span>' 
+                                    : '';
+                                return `
                                 <div class="tree-task">
-                                    <span>${t.task_title}</span>
+                                    <span>${t.task_title}${depHtml}</span>
                                     <span style="color: var(--text-muted); font-size: 0.8rem;">${t.effort_hours}h</span>
                                 </div>
-                            `).join('')}
+                                `
+                            }).join('')}
                         </div>
                     </div>
                 `;
@@ -176,21 +216,50 @@ const workspace = {
 
         container.innerHTML = '<p>Loading Schedule...</p>';
         try {
-            const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${this.projectId}/schedule`).then(r => r.json());
+            const res = await window.api.getSchedule(this.projectId);
             container.innerHTML = '';
             
+            // Group by sprint number
+            const sprintMap = {};
             res.sprints.forEach(s => {
+                if (!sprintMap[s.sprint_number]) {
+                    sprintMap[s.sprint_number] = {
+                        start_date: s.start_date,
+                        end_date: s.end_date,
+                        task_count: 0
+                    };
+                }
+                sprintMap[s.sprint_number].task_count += s.task_count;
+            });
+
+            Object.keys(sprintMap).sort((a,b) => a-b).forEach(sprintNum => {
+                const s = sprintMap[sprintNum];
                 const start = new Date(s.start_date).toLocaleDateString();
                 const end = new Date(s.end_date).toLocaleDateString();
                 
                 container.innerHTML += `
                     <div class="sprint-block">
-                        <h4 style="margin-bottom: 0.5rem; color: var(--color-sedate-gray);">Sprint ${s.sprint_number}</h4>
+                        <h4 style="margin-bottom: 0.5rem; color: var(--color-sedate-gray);">Sprint ${sprintNum}</h4>
                         <p style="font-size: 0.85rem; font-weight: 500;">${start} - ${end}</p>
                         <p style="font-size: 0.8rem; margin-top: 0.5rem;">${s.task_count} tasks assigned</p>
                     </div>
                 `;
             });
+
+            const mContainer = document.getElementById('milestones-container');
+            if (mContainer && res.milestones) {
+                mContainer.innerHTML = '';
+                res.milestones.forEach(m => {
+                    const due = new Date(m.due_date).toLocaleDateString();
+                    mContainer.innerHTML += `
+                        <div style="padding-left: 1rem; border-left: 2px solid var(--color-dusty-rose); position: relative;">
+                            <div style="position: absolute; left: -6px; top: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--color-dusty-rose);"></div>
+                            <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem;">${m.title}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-muted);">Due: ${due}</div>
+                        </div>
+                    `;
+                });
+            }
         } catch (e) {
             container.innerHTML = '<p>Failed to load schedule.</p>';
         }
@@ -202,7 +271,7 @@ const workspace = {
 
         tbody.innerHTML = '<tr><td colspan="3">Loading...</td></tr>';
         try {
-            const res = await fetch(`http://127.0.0.1:8000/api/v1/projects/${this.projectId}/resource-plan`).then(r => r.json());
+            const res = await window.api.getResourcePlan(this.projectId);
             tbody.innerHTML = '';
             
             res.allocations.forEach(r => {
@@ -216,6 +285,53 @@ const workspace = {
             });
         } catch (e) {
             tbody.innerHTML = '<tr><td colspan="3">Failed to load resources.</td></tr>';
+        }
+    },
+
+    async loadGapAnalysis() {
+        const container = document.getElementById('risks-container');
+        if (container.innerHTML !== '') return;
+        
+        container.innerHTML = '<p>Loading Gap Analysis...</p>';
+        try {
+            const res = await window.api.getGapAnalysis(this.projectId);
+            container.innerHTML = '';
+            
+            const r = res.reports;
+            if ((!r.assumptions || r.assumptions.length === 0) && 
+                (!r.clarifications || r.clarifications.length === 0) && 
+                (!r.risks || r.risks.length === 0)) {
+                container.innerHTML = '<div class="card" style="text-align:center; color: var(--text-muted);">No risks or gaps identified (or LLM extraction failed).</div>';
+                return;
+            }
+
+            const renderItems = (items, type) => {
+                if (!items || items.length === 0) return '';
+                return items.map(item => `
+                    <div style="background: var(--bg-main); border: 1px solid var(--color-sedate-gray-light); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 0.5rem;">
+                        <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.25rem;">${item.title || 'Untitled'}</div>
+                        <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">${item.description || ''}</div>
+                        <span class="badge badge-neutral" style="font-size: 0.75rem;">Severity: ${item.severity || 'Medium'}</span>
+                    </div>
+                `).join('');
+            };
+
+            container.innerHTML = `
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                    <div>
+                        <h4 style="margin-bottom: 1rem; color: var(--color-dusty-rose);">Project Risks</h4>
+                        ${renderItems(r.risks, 'risk') || '<p style="color:var(--text-muted); font-size:0.85rem;">None</p>'}
+                    </div>
+                    <div>
+                        <h4 style="margin-bottom: 1rem; color: var(--color-sage);">Assumptions & Clarifications</h4>
+                        ${renderItems(r.assumptions, 'assumption') || ''}
+                        ${renderItems(r.clarifications, 'clarification') || ''}
+                        ${(!r.assumptions?.length && !r.clarifications?.length) ? '<p style="color:var(--text-muted); font-size:0.85rem;">None</p>' : ''}
+                    </div>
+                </div>
+            `;
+        } catch (e) {
+            container.innerHTML = '<div class="card" style="text-align:center; color: var(--text-muted);">No Gap Analysis available for this project.</div>';
         }
     },
 

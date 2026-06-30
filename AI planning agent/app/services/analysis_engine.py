@@ -40,11 +40,9 @@ def _extract_keyword_requirements(texts: list[str]) -> list[dict[str, Any]]:
                     if key not in seen:
                         seen.add(key)
                         desc = match.group(0).strip()
-                        title = (
-                            match.group(1).strip().split(".")[0][:80]
-                            if match.lastindex and match.group(1)
-                            else desc[:80]
-                        )
+                        raw_phrase = match.group(1).strip() if match.lastindex and match.group(1) else desc
+                        words = raw_phrase.split()[:7]
+                        title = " ".join(words).strip(".,!?:;").title()
                         results.append({
                             "title": title,
                             "description": desc,

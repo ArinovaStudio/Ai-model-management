@@ -183,25 +183,18 @@ async def _assign_sprints(
     start: datetime,
     deadline: datetime,
 ) -> list[dict[str, Any]]:
-    total_days = (deadline - start).days
-    sprint_days = max(MIN_SPRINT_DAYS, min(SPRINT_DEFAULT_DAYS, total_days // 3))
-    num_sprints = max(1, total_days // sprint_days)
-    adjusted_sprint_days = total_days / num_sprints
-
-    all_sprint_tasks: list[tuple[int, Any]] = []
+    # 1. Gather all tasks
+    all_sprint_tasks: list[tuple[float, Any]] = []
     for g_idx, group in enumerate(groups):
         tasks = getattr(group, "tasks", None) or []
         for task in tasks:
             effort = task.effortHours or task.estimatedHours or 4
             all_sprint_tasks.append((effort, task))
 
-    # Sort by order then effort
+    # Sort by order
     all_sprint_tasks.sort(key=lambda x: x[1].order if hasattr(x[1], "order") else 0)
 
-    sprint_efforts: list[float] = [0.0] * num_sprints
-    sprint_tasks: list[list[Any]] = [[] for _ in range(num_sprints)]
     task_deps: dict[str, list[str]] = {}
-
     for _, task in all_sprint_tasks:
         deps: list[str] = []
         if task.dependencies:
@@ -239,14 +232,17 @@ async def _assign_sprints(
     tid_to_task = {t.id: t for _, t in all_sprint_tasks}
     tid_to_effort = {t.id: e for e, t in all_sprint_tasks}
 
-    task_to_sprint: dict[str, int] = {}
+    # Assign to sprints dynamically
+    MAX_SPRINT_EFFORT = 120.0  # Roughly 2 devs
+    sprint_efforts: list[float] = [0.0]
+    sprint_tasks: list[list[Any]] = [[]]
     dep_sprint_map: dict[str, int] = {}
 
     for tid in topo_order:
         task = tid_to_task.get(tid)
         if not task:
             continue
-        effort = tid_to_effort.get(tid, 4)
+        effort = tid_to_effort.get(tid, 4.0)
 
         deps = task_deps.get(tid, [])
         latest_dep_sprint = -1
@@ -255,22 +251,29 @@ async def _assign_sprints(
             if ds > latest_dep_sprint:
                 latest_dep_sprint = ds
 
-        assigned = False
-        for s in range(latest_dep_sprint + 1, num_sprints):
-            if sprint_efforts[s] + effort <= 160:
-                sprint_efforts[s] += effort
-                task_to_sprint[tid] = s
-                dep_sprint_map[tid] = s
-                sprint_tasks[s].append(task)
-                assigned = True
+        # Find the first available sprint after the latest dependency
+        start_search = max(0, latest_dep_sprint)
+        assigned_sprint = -1
+        
+        for s in range(start_search, len(sprint_efforts)):
+            if sprint_efforts[s] + effort <= MAX_SPRINT_EFFORT:
+                assigned_sprint = s
                 break
+                
+        # If no existing sprint has capacity, append a new one
+        if assigned_sprint == -1:
+            # We must also respect the dependency, so we can't assign earlier than latest_dep_sprint
+            # if start_search is beyond current len, we need to pad (shouldn't happen sequentially, but just in case)
+            assigned_sprint = max(start_search, len(sprint_efforts))
+            while len(sprint_efforts) <= assigned_sprint:
+                sprint_efforts.append(0.0)
+                sprint_tasks.append([])
 
-        if not assigned:
-            s = min(num_sprints - 1, latest_dep_sprint + 1)
-            sprint_efforts[s] += effort
-            task_to_sprint[tid] = s
-            dep_sprint_map[tid] = s
-            sprint_tasks[s].append(task)
+        sprint_efforts[assigned_sprint] += effort
+        dep_sprint_map[tid] = assigned_sprint
+        sprint_tasks[assigned_sprint].append(task)
+
+    num_sprints = len(sprint_efforts)
 
     # Update GroupingTask with sprint metadata
     sprints_info: list[dict[str, Any]] = []
@@ -279,8 +282,8 @@ async def _assign_sprints(
     for s_idx in range(num_sprints):
         if not sprint_tasks[s_idx]:
             continue
-        s_start = start + timedelta(days=s_idx * adjusted_sprint_days)
-        s_end = start + timedelta(days=min((s_idx + 1) * adjusted_sprint_days, total_days))
+        s_start = start + timedelta(days=s_idx * SPRINT_DEFAULT_DAYS)
+        s_end = s_start + timedelta(days=SPRINT_DEFAULT_DAYS)
 
         group_tasks: dict[str, list[Any]] = defaultdict(list)
         for task in sprint_tasks[s_idx]:

@@ -73,114 +73,104 @@ async def generate_wbs(
 
     deadline = project.projectInfo.deadline if project.projectInfo else None
 
-    groups_map: dict[str, list[Any]] = {}
-    for f in features:
-        category = f.category or "uncategorized"
-        groups_map.setdefault(category, []).append(f)
-
     stored_groups: list[Any] = []
     global_task_index = 0
     all_stored_tasks: list[Any] = []
-    group_task_map: dict[str, list[Any]] = {}
+    
+    # Pre-extract keywords for all features for dependency mapping
+    feature_keywords: dict[str, set[str]] = {}
+    for f in features:
+        feature_keywords[f.id] = _extract_keywords(f"{f.title} {f.description or ''}")
 
-    for group_order, (category, cat_features) in enumerate(sorted(groups_map.items())):
-        group_name = category.replace("_", " ").strip().title() + " Features"
-        feature_ids = [f.id for f in cat_features]
-
+    for group_order, feature in enumerate(features):
+        group_name = f"Feature: {feature.title}"
+        
         group_record = await db.groupingtask.create(
             data={
                 "name": group_name,
                 "projectId": project_id,
-                "description": f"Work package for {category} features ({len(cat_features)} features)",
+                "description": feature.description or "No description provided.",
                 "order": group_order,
-                "featureIds": json.dumps(feature_ids),
+                "featureIds": json.dumps([feature.id]),
             },
         )
 
         group_tasks: list[Any] = []
-        feature_keywords: dict[str, set[str]] = {}
 
-        for feature in cat_features:
-            feat_keywords = _extract_keywords(f"{feature.title} {feature.description or ''}")
-            feature_keywords[feature.id] = feat_keywords
+        for template in WBS_TASK_TEMPLATES:
+            global_task_index += 1
+            task_title = template['title']
+            task_description = (
+                f"{template['title']} for feature '{feature.title}': "
+                f"{feature.description[:250] if feature.description else 'No description provided'}"
+            )
 
-            for template in WBS_TASK_TEMPLATES:
-                global_task_index += 1
-                task_title = f"{template['title']} - {feature.title}"
-                task_description = (
-                    f"{template['title']} for feature '{feature.title}': "
-                    f"{feature.description[:250] if feature.description else 'No description provided'}"
-                )
+            due = _compute_due_date(deadline, template["order"], len(WBS_TASK_TEMPLATES))
 
-                due = _compute_due_date(deadline, template["order"], len(WBS_TASK_TEMPLATES))
-
-                task_record = await db.task.create(
-                    data={
-                        "title": task_title,
-                        "description": task_description,
-                        "assignee": "unassigned",
-                        "priority": feature.priority or "medium",
-                        "dueDate": due,
-                        "status": "pending",
-                        "tags": [],
-                        "projectId": project_id,
-                        "featureRequestId": feature.id,
-                        "groupId": group_record.id,
-                        "order": template["order"],
-                        "estimatedHours": template["estimated_hours"],
-                    },
-                )
-                group_tasks.append(task_record)
-                all_stored_tasks.append(task_record)
+            task_record = await db.task.create(
+                data={
+                    "title": task_title,
+                    "description": task_description,
+                    "assignee": "unassigned",
+                    "priority": feature.priority or "medium",
+                    "dueDate": due,
+                    "status": "pending",
+                    "tags": [],
+                    "projectId": project_id,
+                    "featureRequestId": feature.id,
+                    "groupId": group_record.id,
+                    "order": template["order"],
+                    "estimatedHours": template["estimated_hours"],
+                },
+            )
+            group_tasks.append(task_record)
+            all_stored_tasks.append(task_record)
 
         # Set within-feature sequential dependencies
-        for feature in cat_features:
-            feature_tasks = [t for t in group_tasks if t.featureRequestId == feature.id]
-            feature_tasks.sort(key=lambda t: t.order)
-            for i, task in enumerate(feature_tasks):
-                if i > 0:
-                    deps = json.dumps([feature_tasks[i - 1].id])
-                    await db.task.update(
-                        where={"id": task.id},
-                        data={"dependencies": deps},
-                    )
-
-        # Cross-feature keyword-based dependencies
-        for feature in cat_features:
-            feature_tasks = [t for t in group_tasks if t.featureRequestId == feature.id]
-            feature_tasks.sort(key=lambda t: t.order)
-            if not feature_tasks:
-                continue
-            first_task = feature_tasks[0]
-
-            for other_feat in cat_features:
-                if other_feat.id == feature.id:
-                    continue
-                other_keywords = feature_keywords.get(other_feat.id, set())
-                if other_keywords and feature_keywords.get(feature.id, set()) & other_keywords:
-                    other_tasks = [t for t in group_tasks if t.featureRequestId == other_feat.id]
-                    other_tasks.sort(key=lambda t: t.order, reverse=True)
-                    if other_tasks:
-                        dep_id = other_tasks[0].id
-                        existing_deps: list[str] = []
-                        if first_task.dependencies:
-                            try:
-                                existing_deps = json.loads(first_task.dependencies)
-                            except (json.JSONDecodeError, TypeError):
-                                existing_deps = []
-                        if dep_id not in existing_deps and first_task.id != dep_id:
-                            existing_deps.append(dep_id)
-                            await db.task.update(
-                                where={"id": first_task.id},
-                                data={"dependencies": json.dumps(existing_deps)},
-                            )
+        group_tasks.sort(key=lambda t: t.order)
+        for i, task in enumerate(group_tasks):
+            if i > 0:
+                deps = json.dumps([group_tasks[i - 1].id])
+                await db.task.update(
+                    where={"id": task.id},
+                    data={"dependencies": deps},
+                )
 
         group_record_with_tasks = await db.groupingtask.find_unique(
             where={"id": group_record.id},
             include={"tasks": True},
         )
         stored_groups.append(group_record_with_tasks)
-        group_task_map[group_record.id] = group_tasks
+        
+    # Cross-feature dependencies (Globally across all stored tasks)
+    for feature in features:
+        feature_tasks = [t for t in all_stored_tasks if t.featureRequestId == feature.id]
+        feature_tasks.sort(key=lambda t: t.order)
+        if not feature_tasks:
+            continue
+        first_task = feature_tasks[0]
+
+        for other_feat in features:
+            if other_feat.id == feature.id:
+                continue
+            other_keywords = feature_keywords.get(other_feat.id, set())
+            if other_keywords and feature_keywords.get(feature.id, set()) & other_keywords:
+                other_tasks = [t for t in all_stored_tasks if t.featureRequestId == other_feat.id]
+                other_tasks.sort(key=lambda t: t.order, reverse=True)
+                if other_tasks:
+                    dep_id = other_tasks[0].id
+                    existing_deps: list[str] = []
+                    if first_task.dependencies:
+                        try:
+                            existing_deps = json.loads(first_task.dependencies)
+                        except (json.JSONDecodeError, TypeError):
+                            existing_deps = []
+                    if dep_id not in existing_deps and first_task.id != dep_id:
+                        existing_deps.append(dep_id)
+                        await db.task.update(
+                            where={"id": first_task.id},
+                            data={"dependencies": json.dumps(existing_deps)},
+                        )
 
     logger.info(
         "WBS generated for project %s: %d groups, %d tasks",
