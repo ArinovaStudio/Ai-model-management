@@ -59,6 +59,15 @@ const workspace = {
         const btn = document.getElementById('generate-btn');
         const stepper = document.getElementById('pipeline-stepper');
         
+        // Extract preferences
+        const sprintDurVal = parseInt(document.getElementById('sprint-duration').value, 10);
+        const prodHrsVal = parseFloat(document.getElementById('productive-hours').value);
+        
+        const prefs = {
+            sprint_duration_days: isNaN(sprintDurVal) ? 14 : sprintDurVal,
+            productive_hours_per_day: isNaN(prodHrsVal) ? 6.0 : prodHrsVal
+        };
+
         btn.disabled = true;
         btn.textContent = 'Pipeline Running...';
         stepper.style.display = 'block';
@@ -69,19 +78,19 @@ const workspace = {
             this.updateStep(1, 'done');
 
             this.updateStep(2, 'active');
-            await window.api.generateWBS(this.projectId);
+            await window.api.generateWBS(this.projectId, prefs);
             this.updateStep(2, 'done');
 
             this.updateStep(3, 'active');
-            await window.api.generateEstimates(this.projectId);
+            await window.api.generateEstimates(this.projectId, prefs);
             this.updateStep(3, 'done');
 
             this.updateStep(4, 'active');
-            await window.api.generateResourcePlan(this.projectId);
+            await window.api.generateResourcePlan(this.projectId, prefs);
             this.updateStep(4, 'done');
 
             this.updateStep(5, 'active');
-            await window.api.generateSchedule(this.projectId);
+            await window.api.generateSchedule(this.projectId, prefs);
             this.updateStep(5, 'done');
 
             this.updateStep(6, 'active');
@@ -245,6 +254,45 @@ const workspace = {
                     </div>
                 `;
             });
+
+            // Day-Wise Tasks visualization
+            if (res.tasks && res.tasks.length > 0) {
+                container.innerHTML += `<h4 style="margin-top: 2rem; margin-bottom: 1rem; color: var(--color-sedate-gray); border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom: 0.5rem;">Day-Wise Schedule</h4>`;
+                
+                // Group tasks by their start date string
+                const dayMap = {};
+                res.tasks.forEach(t => {
+                    if (!t.scheduled_start) return;
+                    const dateStr = new Date(t.scheduled_start).toLocaleDateString();
+                    if (!dayMap[dateStr]) dayMap[dateStr] = [];
+                    dayMap[dateStr].push(t);
+                });
+
+                // Sort dates chronologically
+                const sortedDates = Object.keys(dayMap).sort((a, b) => new Date(a) - new Date(b));
+
+                sortedDates.forEach(dateStr => {
+                    const tasks = dayMap[dateStr];
+                    let tasksHtml = tasks.map(t => {
+                        const endStr = new Date(t.scheduled_end).toLocaleDateString();
+                        return `
+                            <div style="padding: 0.75rem; background: var(--bg-main); border: 1px solid var(--color-sedate-gray-light); border-radius: var(--radius-sm); margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-weight: 500; font-size: 0.9rem;">${t.title}</div>
+                                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Duration: ${t.duration_days} day(s) | Ends: ${endStr}</div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    container.innerHTML += `
+                        <div style="margin-bottom: 1.5rem; border-left: 3px solid var(--color-sage); padding-left: 1rem;">
+                            <h5 style="margin-bottom: 0.75rem; color: var(--text-muted);">${dateStr}</h5>
+                            ${tasksHtml}
+                        </div>
+                    `;
+                });
+            }
 
             const mContainer = document.getElementById('milestones-container');
             if (mContainer && res.milestones) {

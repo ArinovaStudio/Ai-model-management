@@ -52,41 +52,41 @@ const api = {
         return res.json();
     },
 
-    async generateWBS(id) {
+    async generateWBS(id, prefs = {}) {
         const res = await fetch(`${API_BASE_URL}/${id}/wbs`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reindex: true })
+            body: JSON.stringify({ reindex: true, ...prefs })
         });
         if (!res.ok) throw new Error('Failed to generate WBS');
         return res.json();
     },
 
-    async generateEstimates(id) {
+    async generateEstimates(id, prefs = {}) {
         const res = await fetch(`${API_BASE_URL}/${id}/estimate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reindex: true })
+            body: JSON.stringify({ reindex: true, ...prefs })
         });
         if (!res.ok) throw new Error('Failed to generate estimates');
         return res.json();
     },
 
-    async generateResourcePlan(id) {
+    async generateResourcePlan(id, prefs = {}) {
         const res = await fetch(`${API_BASE_URL}/${id}/resource-plan`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reindex: true })
+            body: JSON.stringify({ reindex: true, ...prefs })
         });
         if (!res.ok) throw new Error('Failed to generate resource plan');
         return res.json();
     },
 
-    async generateSchedule(id) {
+    async generateSchedule(id, prefs = {}) {
         const res = await fetch(`${API_BASE_URL}/${id}/schedule`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reindex: true })
+            body: JSON.stringify({ reindex: true, ...prefs })
         });
         if (!res.ok) throw new Error('Failed to generate schedule');
         return res.json();

@@ -37,7 +37,7 @@ INTEGRATION_KEYWORDS: list[str] = [
     "federation", "sso", "oauth", "ldap",
 ]
 
-HOURS_PER_DAY: float = 8.0
+
 MAX_COMPLEXITY: float = 5.0
 COMPLEXITY_WEIGHT: float = 0.25
 
@@ -81,15 +81,16 @@ def _compute_task_complexity(
     return round(min(MAX_COMPLEXITY, score), 2)
 
 
-def _compute_effort(estimated_hours: float, complexity_score: float) -> tuple[float, float]:
+def _compute_effort(estimated_hours: float, complexity_score: float, productive_hours_per_day: float = 6.0) -> tuple[float, float]:
     effort = estimated_hours * (1.0 + complexity_score * COMPLEXITY_WEIGHT)
-    duration = max(0.5, effort / HOURS_PER_DAY)
+    duration = max(0.5, effort / productive_hours_per_day)
     return round(effort, 2), round(duration, 2)
 
 
 async def run_estimation(
     project_id: str,
     reindex: bool = False,
+    productive_hours_per_day: float = 6.0,
 ) -> dict[str, Any]:
     project = await db.project.find_unique(
         where={"id": project_id},
@@ -126,7 +127,7 @@ async def run_estimation(
                 description=task.description,
                 dependency_count=len(deps),
             )
-            effort, duration = _compute_effort(estimated_hours, complexity)
+            effort, duration = _compute_effort(estimated_hours, complexity, productive_hours_per_day)
 
             await db.task.update(
                 where={"id": task.id},

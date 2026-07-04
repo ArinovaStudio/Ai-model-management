@@ -49,7 +49,12 @@ async def generate_schedule_endpoint(
     body: ScheduleRequest = ScheduleRequest(),
 ) -> ScheduleResponse:
     try:
-        result = await generate_schedule(project_id, reindex=body.reindex)
+        result = await generate_schedule(
+            project_id, 
+            reindex=body.reindex,
+            sprint_duration_days=body.sprint_duration_days or 14,
+            productive_hours_per_day=body.productive_hours_per_day or 6.0
+        )
         project = await db.project.find_unique(where={"id": project_id})
 
         milestones = [_milestone_to_response(m) for m in result["milestones"]]

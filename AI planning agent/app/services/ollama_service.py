@@ -80,6 +80,68 @@ If a section has no items, use an empty array.
 Project Context:
 """
 
+ARCH_TRINITY_SYSTEM_PROMPT = """You are a Principal Software Architect.
+Given a project context and a specific feature request, define the implementation strategy, architecture, and deployment plan.
+
+Use the following XML output format EXACTLY:
+<thinking>
+Think step-by-step about the technical requirements, components, and data flow.
+</thinking>
+<trinity>
+  <implementation>
+    (Core engineering stack, dependencies, edge cases for this feature)
+  </implementation>
+  <architecture>
+    (Logical components, data models, logic flow)
+  </architecture>
+  <deployment>
+    (Server needs, DB migration, deployment steps)
+  </deployment>
+</trinity>
+"""
+
+WBS_TASK_SYSTEM_PROMPT = """You are an Expert Technical Project Manager.
+Given an Architectural Trinity for a feature, break it down into granular milestones and tasks.
+
+Return ONLY a valid JSON object matching this schema exactly:
+{
+  "milestones": [
+    {
+      "title": "Milestone Title",
+      "description": "Milestone Description",
+      "tasks": [
+        {
+          "title": "Granular Task Title",
+          "description": "Task Description",
+          "estimated_hours": 4.5
+        }
+      ]
+    }
+  ]
+}
+
+Example:
+Input: <trinity><implementation>Set up Postgres Database...</implementation></trinity>
+Output:
+{
+  "milestones": [
+    {
+      "title": "Database Initialization",
+      "description": "Set up relational schemas",
+      "tasks": [
+        {
+          "title": "Create User Tables",
+          "description": "Define the User model and migration scripts.",
+          "estimated_hours": 3.0
+        }
+      ]
+    }
+  ]
+}
+
+Do NOT write anything outside the JSON.
+"""
+
 
 class OllamaService:
     def __init__(self) -> None:
@@ -186,6 +248,53 @@ class OllamaService:
 
         except Exception as exc:
             logger.error("Ollama gap analysis failed: %s", exc)
+            return {}
+
+    async def generate_architecture_trinity(self, context: str, feature: str) -> str:
+        if not await self.is_available():
+            return "<trinity><implementation>Standard</implementation><architecture>Default</architecture><deployment>Basic</deployment></trinity>"
+
+        prompt = f"<context>\n{context}\n</context>\n<feature>\n{feature}\n</feature>"
+        try:
+            response = await self.client.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": ARCH_TRINITY_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                options={"temperature": 0.2, "num_predict": 4096},
+            )
+            raw = response["message"]["content"].strip()
+            # Extract just the <trinity> part if possible
+            if "<trinity>" in raw and "</trinity>" in raw:
+                start = raw.find("<trinity>")
+                end = raw.find("</trinity>") + len("</trinity>")
+                return raw[start:end]
+            return raw
+        except Exception as exc:
+            logger.error("Ollama trinity generation failed: %s", exc)
+            return ""
+
+    async def generate_wbs_tasks(self, trinity_xml: str) -> dict[str, Any]:
+        if not await self.is_available():
+            return {}
+
+        try:
+            response = await self.client.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": WBS_TASK_SYSTEM_PROMPT},
+                    {"role": "user", "content": trinity_xml},
+                ],
+                options={"temperature": 0.1, "num_predict": 4096},
+            )
+            raw = response["message"]["content"].strip()
+            parsed = self._parse_json_response(raw)
+            if isinstance(parsed, dict) and "milestones" in parsed:
+                return parsed
+            return {}
+        except Exception as exc:
+            logger.error("Ollama WBS task generation failed: %s", exc)
             return {}
 
     def _parse_json_response(self, raw: str) -> Any:

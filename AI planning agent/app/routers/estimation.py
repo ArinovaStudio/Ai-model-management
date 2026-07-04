@@ -81,7 +81,11 @@ async def estimate_project(
     body: EstimationRequest = EstimationRequest(),
 ) -> EstimationResponse:
     try:
-        result = await run_estimation(project_id, reindex=body.reindex)
+        result = await run_estimation(
+            project_id, 
+            reindex=body.reindex,
+            productive_hours_per_day=body.productive_hours_per_day or 6.0
+        )
         return await _build_estimation_response(project_id, result)
 
     except ValueError as exc:

@@ -1,8 +1,10 @@
 import json
 import logging
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 
 from app.db.prisma import db
 from app.models.schemas import (
@@ -123,7 +125,6 @@ def _risk_to_response(r: Any) -> RiskBlockageResponse:
 
 @router.post(
     "/{project_id}/analyze",
-    response_model=AnalysisResponse,
     responses={
         404: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
@@ -132,16 +133,36 @@ def _risk_to_response(r: Any) -> RiskBlockageResponse:
 async def analyze_project_endpoint(
     project_id: str,
     body: AnalysisRequest = AnalysisRequest(),
-) -> AnalysisResponse:
-    try:
-        result = await analyze_project(project_id, reindex=body.reindex)
-        project = await db.project.find_unique(where={"id": project_id})
+):
+    async def keep_alive_generator():
+        # Run analyze_project as a background task
+        task = asyncio.create_task(
+            analyze_project(project_id, reindex=body.reindex)
+        )
+        
+        while not task.done():
+            yield b" "  # Keep-alive space
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=15.0)
+            except asyncio.TimeoutError:
+                pass
 
+        try:
+            result = task.result()
+        except AnalysisProjectNotFoundError as exc:
+            yield json.dumps({"error": str(exc), "status_code": 404}).encode('utf-8')
+            return
+        except Exception as exc:
+            logger.error("Analysis failed for project %s: %s", project_id, exc)
+            yield json.dumps({"error": f"Analysis failed: {exc}", "status_code": 422}).encode('utf-8')
+            return
+
+        project = await db.project.find_unique(where={"id": project_id})
         features_response = [_feature_to_response(f) for f in result["feature_requests"]]
         techs_response = [_tech_to_response(t) for t in result["technologies"]]
         ambiguous_response = [_feature_to_response(f) for f in result["ambiguous_requirements"]]
 
-        return AnalysisResponse(
+        response_model = AnalysisResponse(
             project_id=project_id,
             project_name=project.name if project else "Unknown",
             feature_requests=features_response,
@@ -149,18 +170,9 @@ async def analyze_project_endpoint(
             ambiguous_requirements=ambiguous_response,
             clarification_prompts=result["clarification_prompts"],
         )
+        yield response_model.model_dump_json().encode('utf-8')
 
-    except AnalysisProjectNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        )
-    except Exception as exc:
-        logger.error("Analysis failed for project %s: %s", project_id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Analysis failed: {exc}",
-        )
+    return StreamingResponse(keep_alive_generator(), media_type="application/json")
 
 
 @router.get(

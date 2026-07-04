@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from app.db.prisma import db
+from app.services.ollama_service import ollama_service
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,6 @@ WBS_TASK_TEMPLATES: list[dict[str, Any]] = [
     {"title": "Deployment", "order": 6, "estimated_hours": 2.0},
 ]
 
-
 def _extract_keywords(text: str) -> set[str]:
     words = re.findall(r"[a-zA-Z][a-zA-Z0-9]{2,}", text.lower())
     stopwords = {
@@ -27,7 +27,6 @@ def _extract_keywords(text: str) -> set[str]:
         "also", "each", "their", "them", "they", "its", "would", "could",
     }
     return {w for w in words if w not in stopwords}
-
 
 def _compute_due_date(
     project_deadline: Optional[datetime],
@@ -44,10 +43,11 @@ def _compute_due_date(
             return now + timedelta(seconds=offset)
     return now + timedelta(days=task_order * 5)
 
-
 async def generate_wbs(
     project_id: str,
     reindex: bool = False,
+    sprint_duration_days: int = 14,
+    productive_hours_per_day: float = 6.0,
 ) -> dict[str, Any]:
     project = await db.project.find_unique(
         where={"id": project_id},
@@ -73,6 +73,15 @@ async def generate_wbs(
 
     deadline = project.projectInfo.deadline if project.projectInfo else None
 
+    # Build context for LLM
+    info = project.projectInfo
+    context = ""
+    if info:
+        desc = info.description or ""
+        scope = info.scope or ""
+        constraints = info.constraints or ""
+        context = f"Project: {info.name}\nDescription: {desc}\nScope: {scope}\nConstraints: {constraints}\n"
+
     stored_groups: list[Any] = []
     global_task_index = 0
     all_stored_tasks: list[Any] = []
@@ -96,20 +105,41 @@ async def generate_wbs(
         )
 
         group_tasks: list[Any] = []
+        
+        # --- MULTI-PASS LLM WBS GENERATION ---
+        trinity_xml = await ollama_service.generate_architecture_trinity(
+            context=context,
+            feature=f"{feature.title}: {feature.description}"
+        )
+        wbs_data = await ollama_service.generate_wbs_tasks(trinity_xml)
+        
+        task_list = []
+        if wbs_data and "milestones" in wbs_data:
+            # Flatten milestones into tasks for this feature group
+            for m_idx, milestone in enumerate(wbs_data["milestones"]):
+                m_title = milestone.get("title", f"Milestone {m_idx+1}")
+                m_tasks = milestone.get("tasks", [])
+                for t_idx, t in enumerate(m_tasks):
+                    task_list.append({
+                        "title": f"[{m_title}] {t.get('title', 'Task')}",
+                        "description": t.get("description", "No description"),
+                        "estimated_hours": float(t.get("estimated_hours", 4.0)),
+                        "order": len(task_list) + 1
+                    })
+        
+        if not task_list:
+            logger.warning("LLM failed to generate tasks for feature %s, falling back to templates", feature.id)
+            task_list = WBS_TASK_TEMPLATES
 
-        for template in WBS_TASK_TEMPLATES:
+        for template in task_list:
             global_task_index += 1
             task_title = template['title']
-            task_description = (
-                f"{template['title']} for feature '{feature.title}': "
-                f"{feature.description[:250] if feature.description else 'No description provided'}"
-            )
-
-            due = _compute_due_date(deadline, template["order"], len(WBS_TASK_TEMPLATES))
+            task_description = template.get('description', f"Task for {feature.title}")
+            due = _compute_due_date(deadline, template["order"], len(task_list))
 
             task_record = await db.task.create(
                 data={
-                    "title": task_title,
+                    "title": task_title[:255],
                     "description": task_description,
                     "assignee": "unassigned",
                     "priority": feature.priority or "medium",
@@ -151,7 +181,7 @@ async def generate_wbs(
         first_task = feature_tasks[0]
 
         for other_feat in features:
-            if other_feat.id == feature.id:
+            if other_feat.id >= feature.id:
                 continue
             other_keywords = feature_keywords.get(other_feat.id, set())
             if other_keywords and feature_keywords.get(feature.id, set()) & other_keywords:

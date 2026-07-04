@@ -244,6 +244,8 @@ class WbsResponse(BaseModel):
 
 class WbsRequest(BaseModel):
     reindex: bool = False
+    sprint_duration_days: Optional[int] = 14
+    productive_hours_per_day: Optional[float] = 6.0
 
 
 class WbsTaskUpdate(BaseModel):
@@ -258,6 +260,8 @@ class WbsTaskUpdate(BaseModel):
 
 class EstimationRequest(BaseModel):
     reindex: bool = False
+    sprint_duration_days: Optional[int] = 14
+    productive_hours_per_day: Optional[float] = 6.0
 
 
 class TaskEstimateResponse(BaseModel):
@@ -310,6 +314,8 @@ class ResourceAllocationResponse(BaseModel):
 
 class ResourcePlanRequest(BaseModel):
     reindex: bool = False
+    sprint_duration_days: Optional[int] = 14
+    productive_hours_per_day: Optional[float] = 6.0
 
 
 class ResourcePlanResponse(BaseModel):
@@ -326,6 +332,8 @@ class ResourcePlanResponse(BaseModel):
 
 class ScheduleRequest(BaseModel):
     reindex: bool = False
+    sprint_duration_days: Optional[int] = 14
+    productive_hours_per_day: Optional[float] = 6.0
 
 
 class MilestoneResponse(BaseModel):

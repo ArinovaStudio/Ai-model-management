@@ -15,6 +15,8 @@ MIN_SPRINT_DAYS: int = 7
 async def generate_schedule(
     project_id: str,
     reindex: bool = False,
+    sprint_duration_days: int = 14,
+    productive_hours_per_day: float = 6.0,
 ) -> dict[str, Any]:
     project = await db.project.find_unique(
         where={"id": project_id},
@@ -67,18 +69,25 @@ async def generate_schedule(
     milestones = await _generate_milestones(project_id, start, deadline)
 
     # --- Generate Sprints ---
-    sprints = await _assign_sprints(project_id, groups, start, deadline)
+    sprints = await _assign_sprints(project_id, groups, start, deadline, sprint_duration_days, productive_hours_per_day)
 
     # --- Schedule tasks ---
-    task_schedules = _schedule_tasks(all_tasks, start, total_available_days, warnings)
+    task_schedules = _schedule_tasks(all_tasks, start, total_available_days, warnings, productive_hours_per_day)
 
     # --- Persist task schedules ---
     for ts in task_schedules:
+        s_start = ts["scheduled_start"]
+        s_end = ts["scheduled_end"]
+        if s_start and s_start.tzinfo is None:
+            s_start = s_start.replace(tzinfo=timezone.utc)
+        if s_end and s_end.tzinfo is None:
+            s_end = s_end.replace(tzinfo=timezone.utc)
+            
         await db.task.update(
             where={"id": ts["task_id"]},
             data={
-                "scheduledStart": ts["scheduled_start"],
-                "scheduledEnd": ts["scheduled_end"],
+                "scheduledStart": s_start,
+                "scheduledEnd": s_end,
             },
         )
 
@@ -182,6 +191,8 @@ async def _assign_sprints(
     groups: list[Any],
     start: datetime,
     deadline: datetime,
+    sprint_duration_days: int = 14,
+    productive_hours_per_day: float = 6.0,
 ) -> list[dict[str, Any]]:
     # 1. Gather all tasks
     all_sprint_tasks: list[tuple[float, Any]] = []
@@ -233,7 +244,7 @@ async def _assign_sprints(
     tid_to_effort = {t.id: e for e, t in all_sprint_tasks}
 
     # Assign to sprints dynamically
-    MAX_SPRINT_EFFORT = 120.0  # Roughly 2 devs
+    MAX_SPRINT_EFFORT = sprint_duration_days * productive_hours_per_day * 2.0  # Roughly 2 devs
     sprint_efforts: list[float] = [0.0]
     sprint_tasks: list[list[Any]] = [[]]
     dep_sprint_map: dict[str, int] = {}
@@ -282,8 +293,8 @@ async def _assign_sprints(
     for s_idx in range(num_sprints):
         if not sprint_tasks[s_idx]:
             continue
-        s_start = start + timedelta(days=s_idx * SPRINT_DEFAULT_DAYS)
-        s_end = s_start + timedelta(days=SPRINT_DEFAULT_DAYS)
+        s_start = start + timedelta(days=s_idx * sprint_duration_days)
+        s_end = s_start + timedelta(days=sprint_duration_days)
 
         group_tasks: dict[str, list[Any]] = defaultdict(list)
         for task in sprint_tasks[s_idx]:
@@ -326,6 +337,7 @@ def _schedule_tasks(
     project_start: datetime,
     total_days: int,
     warnings: list[dict[str, str]],
+    productive_hours_per_day: float = 6.0,
 ) -> list[dict[str, Any]]:
     if not tasks:
         return []
@@ -367,6 +379,7 @@ def _schedule_tasks(
             "message": f"Circular dependencies detected among {len(tasks) - len(topo_order)} tasks",
             "severity": "high",
         })
+        topo_order = [t.id for t in tasks]
 
     tid_map = {t.id: t for t in tasks}
     scheduled_starts: dict[str, datetime] = {}
@@ -376,7 +389,7 @@ def _schedule_tasks(
         t = tid_map.get(tid)
         if not t:
             continue
-        duration = t.durationDays or (t.effortHours or 4) / 8
+        duration = t.durationDays or (t.effortHours or 4) / productive_hours_per_day
         duration = max(0.5, duration)
 
         deps = task_deps.get(tid, [])
@@ -408,7 +421,7 @@ def _schedule_tasks(
             "group_id": t.groupId,
             "scheduled_start": scheduled_starts.get(tid),
             "scheduled_end": scheduled_ends.get(tid),
-            "duration_days": round(t.durationDays or (t.effortHours or 4) / 8, 1),
+            "duration_days": round(t.durationDays or (t.effortHours or 4) / productive_hours_per_day, 1),
             "dependencies": deps_list,
         })
 

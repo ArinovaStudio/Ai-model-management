@@ -1,8 +1,10 @@
 import json
 import logging
+import asyncio
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 
 from app.db.prisma import db
 from app.models.schemas import (
@@ -80,8 +82,6 @@ def _group_to_response(g: Any) -> WbsGroupResponse:
 
 @router.post(
     "/{project_id}/wbs",
-    response_model=WbsResponse,
-    status_code=status.HTTP_201_CREATED,
     responses={
         404: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
@@ -90,32 +90,50 @@ def _group_to_response(g: Any) -> WbsGroupResponse:
 async def generate_wbs_endpoint(
     project_id: str,
     body: WbsRequest = WbsRequest(),
-) -> WbsResponse:
-    try:
-        result = await generate_wbs(project_id, reindex=body.reindex)
-        project = await db.project.find_unique(where={"id": project_id})
+):
+    async def keep_alive_generator():
+        # Run generate_wbs as a background task to allow yielding
+        task = asyncio.create_task(
+            generate_wbs(
+                project_id, 
+                reindex=body.reindex,
+                sprint_duration_days=body.sprint_duration_days or 14,
+                productive_hours_per_day=body.productive_hours_per_day or 6.0
+            )
+        )
+        
+        while not task.done():
+            yield b" "  # Send a space character to keep the browser connection alive
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=15.0)
+            except asyncio.TimeoutError:
+                pass
+                
+        try:
+            result = task.result()
+        except ValueError as exc:
+            yield json.dumps({"error": str(exc), "status_code": 404}).encode('utf-8')
+            return
+        except Exception as exc:
+            logger.error("WBS generation failed for project %s: %s", project_id, exc)
+            yield json.dumps({"error": f"WBS generation failed: {exc}", "status_code": 422}).encode('utf-8')
+            return
 
+        project = await db.project.find_unique(where={"id": project_id})
         groups = [_group_to_response(g) for g in result["groups"]]
 
-        return WbsResponse(
+        response_model = WbsResponse(
             project_id=project_id,
             project_name=project.name if project else "Unknown",
             groups=groups,
             total_groups=result["total_groups"],
             total_tasks=result["total_tasks"],
         )
+        
+        # Yield the actual JSON response
+        yield response_model.model_dump_json().encode('utf-8')
 
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        )
-    except Exception as exc:
-        logger.error("WBS generation failed for project %s: %s", project_id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"WBS generation failed: {exc}",
-        )
+    return StreamingResponse(keep_alive_generator(), media_type="application/json")
 
 
 @router.get(

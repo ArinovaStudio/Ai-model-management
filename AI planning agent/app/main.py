@@ -1,10 +1,11 @@
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.db.prisma import connect_db, disconnect_db
+from app.db.prisma import connect_db, disconnect_db, db
 from app.routers import analysis, context, docs, estimation, projects, resource_planning, schedule, validation, wbs
 
 logging.basicConfig(
@@ -13,12 +14,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+async def db_keepalive():
+    while True:
+        try:
+            await asyncio.sleep(60)
+            await db.query_raw("SELECT 1")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning("DB keepalive error: %s", e)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_db()
+    keepalive_task = asyncio.create_task(db_keepalive())
     logger.info("Project Planning Engine started")
     yield
+    keepalive_task.cancel()
     await disconnect_db()
     logger.info("Project Planning Engine shut down")
 
