@@ -54,6 +54,7 @@ async def generate_wbs(
         include={
             "featureRequests": True,
             "projectInfo": True,
+            "technologies": True,
         },
     )
 
@@ -76,11 +77,13 @@ async def generate_wbs(
     # Build context for LLM
     info = project.projectInfo
     context = ""
+    tech_stack = ", ".join([t.name for t in (project.technologies or [])]) if project.technologies else "None specified"
+    
     if info:
         desc = info.description or ""
         scope = info.scope or ""
         constraints = info.constraints or ""
-        context = f"Project: {info.name}\nDescription: {desc}\nScope: {scope}\nConstraints: {constraints}\n"
+        context = f"Project: {info.name}\nDescription: {desc}\nScope: {scope}\nConstraints: {constraints}\nTechnology Stack: {tech_stack}\n"
 
     stored_groups: list[Any] = []
     global_task_index = 0
@@ -122,15 +125,20 @@ async def generate_wbs(
                 for t_idx, t in enumerate(m_tasks):
                     task_list.append({
                         "title": f"[{m_title}] {t.get('title', 'Task')}",
+                        "raw_title": t.get("title", "Task"),
                         "description": t.get("description", "No description"),
                         "estimated_hours": float(t.get("estimated_hours", 4.0)),
+                        "depends_on": t.get("depends_on", []),
                         "order": len(task_list) + 1
                     })
         
+        is_fallback = False
         if not task_list:
             logger.warning("LLM failed to generate tasks for feature %s, falling back to templates", feature.id)
             task_list = WBS_TASK_TEMPLATES
+            is_fallback = True
 
+        title_to_id = {}
         for template in task_list:
             global_task_index += 1
             task_title = template['title']
@@ -150,21 +158,41 @@ async def generate_wbs(
                     "featureRequestId": feature.id,
                     "groupId": group_record.id,
                     "order": template["order"],
-                    "estimatedHours": template["estimated_hours"],
+                    "estimatedHours": template.get("estimated_hours", 4.0),
                 },
             )
-            group_tasks.append(task_record)
+            raw_t = template.get("raw_title", task_title).lower()
+            title_to_id[raw_t] = task_record.id
+            group_tasks.append((task_record, template.get("depends_on", [])))
             all_stored_tasks.append(task_record)
 
-        # Set within-feature sequential dependencies
-        group_tasks.sort(key=lambda t: t.order)
-        for i, task in enumerate(group_tasks):
-            if i > 0:
-                deps = json.dumps([group_tasks[i - 1].id])
-                await db.task.update(
-                    where={"id": task.id},
-                    data={"dependencies": deps},
-                )
+        # Set within-feature dependencies
+        if is_fallback:
+            # Fallback linear dependencies
+            only_tasks = [t[0] for t in group_tasks]
+            only_tasks.sort(key=lambda t: t.order)
+            for i, task in enumerate(only_tasks):
+                if i > 0:
+                    deps = json.dumps([only_tasks[i - 1].id])
+                    await db.task.update(where={"id": task.id}, data={"dependencies": deps})
+        else:
+            # Graph dependencies via LLM generated titles
+            for task_record, depends_on_list in group_tasks:
+                dep_ids = []
+                for dep_title in depends_on_list:
+                    matched_id = None
+                    dt_lower = dep_title.lower()
+                    for raw_t, tid in title_to_id.items():
+                        if dt_lower in raw_t or raw_t in dt_lower:
+                            matched_id = tid
+                            break
+                    if matched_id:
+                        dep_ids.append(matched_id)
+                if dep_ids:
+                    await db.task.update(
+                        where={"id": task_record.id},
+                        data={"dependencies": json.dumps(dep_ids)},
+                    )
 
         group_record_with_tasks = await db.groupingtask.find_unique(
             where={"id": group_record.id},

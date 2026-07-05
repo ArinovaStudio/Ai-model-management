@@ -96,6 +96,7 @@ async def generate_schedule_endpoint(
             tasks=tasks,
             warnings=warnings_list,
             feasible=result["feasible"],
+            required_headcount=result.get("required_headcount"),
         )
 
     except ValueError as exc:
@@ -191,6 +192,16 @@ async def get_schedule(project_id: str) -> ScheduleResponse:
         available = max(1, (deadline - start).days)
         feasible = total_est <= available
 
+        import json
+        req_hc = None
+        if project.summary:
+            try:
+                summ = json.loads(project.summary)
+                if "schedule" in summ and "required_headcount" in summ["schedule"]:
+                    req_hc = summ["schedule"]["required_headcount"]
+            except Exception:
+                pass
+
         warnings_vec: list[ScheduleWarning] = []
         if not feasible:
             warnings_vec.append(
@@ -211,6 +222,7 @@ async def get_schedule(project_id: str) -> ScheduleResponse:
             tasks=all_tasks,
             warnings=warnings_vec,
             feasible=feasible,
+            required_headcount=req_hc,
         )
 
     except HTTPException:

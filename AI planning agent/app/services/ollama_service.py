@@ -9,137 +9,124 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 EXTRACTION_SYSTEM_PROMPT = """You are an expert requirements analyst.
-Extract software functional requirements and features from the document.
+Extract software functional requirements and features explicitly mentioned in the provided text.
 Ignore metadata, email headers, and greetings.
 
+CRITICAL RULE FOR LLAMA 3: Do NOT invent features that are not explicitly requested or inferred directly from the user text. Only output technologies explicitly written in the text to the "related_technologies" array.
+
 For each feature, output a JSON object with:
-  - "title": (Max 5 words, e.g. "Secure Document Upload")
-  - "description": (Detailed explanation)
+  - "title": (Max 5 words)
+  - "description": (Detailed explanation of what the user wants)
   - "category": ("functional" or "feature")
   - "priority": ("high", "medium", or "low")
-  - "related_technologies": (Array of technologies)
+  - "related_technologies": (Array of strings representing tech explicitly named in the text)
   - "ambiguous": (boolean)
-  - "clarification_prompt": (string or null)
+  - "clarification_prompt": (string or null if ambiguous is true)
 
-Output ONLY a JSON array of these objects. Example:
-[
-  {
-    "title": "User Authentication System",
-    "description": "Users must be able to log in securely.",
-    "category": "functional",
-    "priority": "high",
-    "related_technologies": [],
-    "ambiguous": false,
-    "clarification_prompt": null
-  }
-]
-Do not write anything outside the JSON array.
+Output ONLY a JSON array of these objects. Do not write anything outside the JSON array. No conversational text.
 """
 
 CLARIFICATION_SYSTEM_PROMPT = """You are a requirements analyst helping to clarify ambiguous software requirements.
-Given the original requirement and a user's clarification, rewrite the requirement clearly.
-Return ONLY valid JSON:
+Given the original requirement and a user's clarification, rewrite the requirement clearly and completely.
+Return ONLY a valid JSON object. Do not wrap in markdown code blocks like ```json ... ```. No conversational text, no extra spaces.
+
 {
   "title": "clarified title",
-  "description": "clarified detailed description",
+  "description": "clarified detailed description matching user details",
   "category": "functional | non-functional | feature | user-story | bug-fix | enhancement",
   "priority": "critical | high | medium | low",
   "ambiguous": false,
   "clarification_prompt": null
 }
-No markdown, no code fences, no extra text.
 """
 
 GAP_ANALYSIS_SYSTEM_PROMPT = """You are an expert project risk and gap analyst. Given a project's full context including its description, scope, constraints, timeline, feature requirements, and technology stack, perform a comprehensive gap analysis.
 
-Produce three structured reports as a JSON object with the following keys:
+Produce three structured reports as a JSON object. Return ONLY valid JSON. Do not write markdown blocks or text fences.
 
-1. "assumptions": Things the project seems to assume without explicit evidence. Each item:
-   - title (short)
-   - description (detailed explanation)
-   - category (one of: scope, timeline, technology, resource, process)
-   - severity (high, medium, low)
-
-2. "clarifications": Areas where information is missing, ambiguous, or incomplete. Each item:
-   - title (short)
-   - description (what needs clarification)
-   - category (one of: ambiguity, incompleteness, missing_detail, contradiction)
-   - severity (high, medium, low)
-   - related_feature (title of related feature if applicable, otherwise null)
-
-3. "risks": Potential risks and blockages that could impact project success. Each item:
-   - title (short)
-   - description (detailed explanation of the risk)
-   - category (one of: missing_dependency, unrealistic_deadline, unclear_scope, resource_gap, tech_incompatibility, requirement_gap)
-   - severity (critical, high, medium, low)
-   - type ("risk" for potential issues, "blockage" for definite blockers)
-
-Return ONLY valid JSON. No markdown, no code fences, no extra text.
-If a section has no items, use an empty array.
-
-Project Context:
+Required JSON Structure:
+{
+  "assumptions": [
+    {
+      "title": "short title",
+      "description": "Things the project assumes without explicit evidence in the text.",
+      "category": "scope | timeline | technology | resource | process",
+      "severity": "high | medium | low"
+    }
+  ],
+  "clarifications": [
+    {
+      "title": "short title",
+      "description": "Areas where information is missing, ambiguous, or incomplete.",
+      "category": "ambiguity | incompleteness | missing_detail | contradiction",
+      "severity": "high | medium | low",
+      "related_feature": "title of related feature or null"
+    }
+  ],
+  "risks": [
+    {
+      "title": "short title",
+      "description": "Potential risks and blockages that could impact project success.",
+      "category": "missing_dependency | unrealistic_deadline | unclear_scope | resource_gap | tech_incompatibility | requirement_gap",
+      "severity": "critical | high | medium | low",
+      "type": "risk | blockage"
+    }
+  ]
+}
+If a section has no items, use an empty array []. Do not add trailing commas.
 """
 
 ARCH_TRINITY_SYSTEM_PROMPT = """You are a Principal Software Architect.
 Given a project context and a specific feature request, define the implementation strategy, architecture, and deployment plan.
 
+CRITICAL FOR LLAMA 3: You must restrict your strategy ONLY to the technology stack explicitly defined in the provided Project Context. Do not introduce alternative frameworks, databases, or language ecosystems.
+
 Use the following XML output format EXACTLY:
 <thinking>
-Think step-by-step about the technical requirements, components, and data flow.
+Think step-by-step about the specific technical requirements, edge cases, and schemas required for this feature given the project's tech stack.
 </thinking>
 <trinity>
   <implementation>
-    (Core engineering stack, dependencies, edge cases for this feature)
+    (Core engineering approach, explicit module dependencies, edge cases and failure handling protocols for this specific feature)
   </implementation>
   <architecture>
-    (Logical components, data models, logic flow)
+    (Logical sub-components, database entities, relational models, and detailed user/testing flows including end-to-end and final UAT criteria)
   </architecture>
   <deployment>
-    (Server needs, DB migration, deployment steps)
+    (Server provisioning requirements, environment configuration variables, database migration/schema seeding steps, and verification sequences)
   </deployment>
 </trinity>
 """
 
 WBS_TASK_SYSTEM_PROMPT = """You are an Expert Technical Project Manager.
-Given an Architectural Trinity for a feature, break it down into granular milestones and tasks.
+Given an Architectural Trinity for a feature, break it down into sequential milestones and granular tasks.
 
-Return ONLY a valid JSON object matching this schema exactly:
+CRITICAL GENERATION RULES FOR LLAMA 3:
+1. Do not use generic task names like "Implement API". Make them explicitly detailed to the feature details provided in the architectural text.
+2. Break down the breakdown into exactly 5 logical, sequential Milestone phases:
+   - Milestone 1: Core Foundation & Context Baseline
+   - Milestone 2: Functional Feature Engineering & System Core
+   - Milestone 3: Interface Integration & Frontend Synchronization
+   - Milestone 4: Verification, Hardening, & Risk Mitigation (including E2E and UAT)
+   - Milestone 5: Deployment Go-Live & Pipeline Sign-off
+
+Return ONLY a valid JSON object matching this schema exactly. No trailing commas, conversational wrap-around text, or markdown code blocks:
 {
   "milestones": [
     {
-      "title": "Milestone Title",
-      "description": "Milestone Description",
+      "title": "Milestone Phase Title",
+      "description": "Milestone Description detailing phase goals",
       "tasks": [
         {
-          "title": "Granular Task Title",
-          "description": "Task Description",
-          "estimated_hours": 4.5
+          "title": "Granular, context-specific task title",
+          "description": "Explicit step-by-step technical execution plan for this task",
+          "estimated_hours": 4.5,
+          "depends_on": ["Title of previous task this blocks on", "Can be empty [] for independent tasks"]
         }
       ]
     }
   ]
 }
-
-Example:
-Input: <trinity><implementation>Set up Postgres Database...</implementation></trinity>
-Output:
-{
-  "milestones": [
-    {
-      "title": "Database Initialization",
-      "description": "Set up relational schemas",
-      "tasks": [
-        {
-          "title": "Create User Tables",
-          "description": "Define the User model and migration scripts.",
-          "estimated_hours": 3.0
-        }
-      ]
-    }
-  ]
-}
-
-Do NOT write anything outside the JSON.
 """
 
 
@@ -150,16 +137,13 @@ class OllamaService:
         self._available: Optional[bool] = None
 
     async def is_available(self) -> bool:
-        if self._available is not None:
-            return self._available
         try:
             await self.client.list()
-            self._available = True
             logger.info("Ollama service is available (model: %s)", self.model)
+            return True
         except Exception as exc:
-            self._available = False
             logger.warning("Ollama service is not available: %s", exc)
-        return self._available
+            return False
 
     async def extract_requirements(self, content: str) -> list[dict[str, Any]]:
         if not await self.is_available():

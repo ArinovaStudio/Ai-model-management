@@ -190,7 +190,71 @@ const workspace = {
             const res = await window.api.getEstimates(this.projectId);
             container.innerHTML = '';
             
+            // 1. Build Global Task ID -> Title Map
+            const taskIdToTitle = {};
+            res.groups.forEach(g => g.tasks.forEach(t => taskIdToTitle[t.task_id] = t.task_title));
+
             res.groups.forEach(g => {
+                // 2. Group by Milestone
+                const milestoneGroups = {};
+                const generalTasks = [];
+                
+                g.tasks.forEach(t => {
+                    const match = t.task_title.match(/^\[(Milestone\s*\d+[^\]]*)\]/i);
+                    if (match) {
+                        const mName = match[1];
+                        if (!milestoneGroups[mName]) milestoneGroups[mName] = [];
+                        const cleanTitle = t.task_title.replace(/^\[Milestone\s*\d+[^\]]*\]\s*/i, '');
+                        milestoneGroups[mName].push({...t, cleanTitle});
+                    } else {
+                        generalTasks.push({...t, cleanTitle: t.task_title});
+                    }
+                });
+
+                let tasksHtml = '';
+                
+                // Render Milestones
+                Object.keys(milestoneGroups).forEach(mName => {
+                    const mTasks = milestoneGroups[mName];
+                    tasksHtml += `
+                        <div style="margin-left: 1.5rem; margin-top: 0.5rem; border-left: 2px solid var(--color-sedate-gray-light); padding-left: 1rem;">
+                            <div style="font-weight: 600; font-size: 0.85rem; color: var(--color-sedate-gray); cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+                                ▾ ${mName}
+                            </div>
+                            <div style="display: block;">
+                                ${mTasks.map(t => {
+                                    const depTitles = (t.dependencies || []).map(id => taskIdToTitle[id] || id).join(', ');
+                                    const depHtml = (t.dependencies && t.dependencies.length > 0) 
+                                        ? \`<span title="Depends on: ${depTitles}" style="cursor: help; margin-left: 0.5rem; font-size: 0.8rem;">🔗</span>\` 
+                                        : '';
+                                    return \`
+                                    <div class="tree-task" style="margin-left: 0;">
+                                        <span>${t.cleanTitle}${depHtml}</span>
+                                        <span style="color: var(--text-muted); font-size: 0.8rem;">${t.effort_hours}h</span>
+                                    </div>
+                                    \`
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                // Render General Tasks (if any)
+                if (generalTasks.length > 0) {
+                    tasksHtml += generalTasks.map(t => {
+                        const depTitles = (t.dependencies || []).map(id => taskIdToTitle[id] || id).join(', ');
+                        const depHtml = (t.dependencies && t.dependencies.length > 0) 
+                            ? \`<span title="Depends on: ${depTitles}" style="cursor: help; margin-left: 0.5rem; font-size: 0.8rem;">🔗</span>\` 
+                            : '';
+                        return \`
+                        <div class="tree-task">
+                            <span>${t.cleanTitle}${depHtml}</span>
+                            <span style="color: var(--text-muted); font-size: 0.8rem;">${t.effort_hours}h</span>
+                        </div>
+                        \`
+                    }).join('');
+                }
+
                 const epicHtml = `
                     <div class="tree-epic">
                         <div class="tree-epic-header" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
@@ -198,17 +262,7 @@ const workspace = {
                             <span class="badge badge-neutral">${g.total_effort_hours} hrs</span>
                         </div>
                         <div style="display: block;">
-                            ${g.tasks.map(t => {
-                                const depHtml = t.dependencies && t.dependencies.length > 0 
-                                    ? '<span title="Depends on other tasks" style="cursor: help; margin-left: 0.5rem; font-size: 0.8rem;">🔗</span>' 
-                                    : '';
-                                return `
-                                <div class="tree-task">
-                                    <span>${t.task_title}${depHtml}</span>
-                                    <span style="color: var(--text-muted); font-size: 0.8rem;">${t.effort_hours}h</span>
-                                </div>
-                                `
-                            }).join('')}
+                            ${tasksHtml}
                         </div>
                     </div>
                 `;
@@ -227,6 +281,14 @@ const workspace = {
         try {
             const res = await window.api.getSchedule(this.projectId);
             container.innerHTML = '';
+            
+            if (res.required_headcount) {
+                container.innerHTML += `
+                    <div style="background: #e9ecef; color: #495057; padding: 0.75rem 1rem; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 500; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; border-left: 4px solid var(--color-sage);">
+                        💡 <strong>AI Capacity Calculation:</strong> To meet the deadline with the estimated task volume, the schedule has been automatically leveled for a minimum of <strong>${res.required_headcount} concurrent developers</strong>.
+                    </div>
+                `;
+            }
             
             // Group by sprint number
             const sprintMap = {};

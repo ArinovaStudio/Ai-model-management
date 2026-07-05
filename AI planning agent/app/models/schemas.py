@@ -384,6 +384,7 @@ class ScheduleResponse(BaseModel):
     tasks: list[ScheduledTaskInfo] = []
     warnings: list[ScheduleWarning] = []
     feasible: bool = True
+    required_headcount: Optional[int] = None
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 

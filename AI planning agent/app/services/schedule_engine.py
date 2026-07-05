@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -65,14 +66,17 @@ async def generate_schedule(
             "severity": "critical",
         })
 
+    total_task_hours = sum((t.effortHours or getattr(t, 'estimatedHours', 0) or 4.0) for t in all_tasks)
+    required_headcount = max(2, math.ceil(total_task_hours / (total_available_days * productive_hours_per_day)))
+
     # --- Generate Milestones ---
     milestones = await _generate_milestones(project_id, start, deadline)
 
     # --- Generate Sprints ---
-    sprints = await _assign_sprints(project_id, groups, start, deadline, sprint_duration_days, productive_hours_per_day)
+    sprints = await _assign_sprints(project_id, groups, start, deadline, sprint_duration_days, productive_hours_per_day, required_headcount)
 
     # --- Schedule tasks ---
-    task_schedules = _schedule_tasks(all_tasks, start, total_available_days, warnings, productive_hours_per_day)
+    task_schedules = _schedule_tasks(all_tasks, start, total_available_days, warnings, productive_hours_per_day, required_headcount)
 
     # --- Persist task schedules ---
     for ts in task_schedules:
@@ -103,6 +107,7 @@ async def generate_schedule(
         "deadline": deadline.isoformat(),
         "total_estimated_duration": round(total_estimated_duration, 1),
         "feasible": total_estimated_duration <= total_available_days,
+        "required_headcount": required_headcount,
         "milestones": [
             {"title": m.title, "due_date": m.dueDate.isoformat()}
             for m in milestones
@@ -128,6 +133,7 @@ async def generate_schedule(
         "tasks": task_schedules,
         "warnings": warnings,
         "feasible": total_estimated_duration <= total_available_days,
+        "required_headcount": required_headcount,
     }
 
 
@@ -193,6 +199,7 @@ async def _assign_sprints(
     deadline: datetime,
     sprint_duration_days: int = 14,
     productive_hours_per_day: float = 6.0,
+    required_headcount: int = 2,
 ) -> list[dict[str, Any]]:
     # 1. Gather all tasks
     all_sprint_tasks: list[tuple[float, Any]] = []
@@ -244,7 +251,7 @@ async def _assign_sprints(
     tid_to_effort = {t.id: e for e, t in all_sprint_tasks}
 
     # Assign to sprints dynamically
-    MAX_SPRINT_EFFORT = sprint_duration_days * productive_hours_per_day * 2.0  # Roughly 2 devs
+    MAX_SPRINT_EFFORT = sprint_duration_days * productive_hours_per_day * required_headcount
     sprint_efforts: list[float] = [0.0]
     sprint_tasks: list[list[Any]] = [[]]
     dep_sprint_map: dict[str, int] = {}
@@ -338,6 +345,7 @@ def _schedule_tasks(
     total_days: int,
     warnings: list[dict[str, str]],
     productive_hours_per_day: float = 6.0,
+    required_headcount: int = 2,
 ) -> list[dict[str, Any]]:
     if not tasks:
         return []
@@ -384,13 +392,15 @@ def _schedule_tasks(
     tid_map = {t.id: t for t in tasks}
     scheduled_starts: dict[str, datetime] = {}
     scheduled_ends: dict[str, datetime] = {}
+    daily_allocation: dict[Any, int] = {}
 
     for tid in topo_order:
         t = tid_map.get(tid)
         if not t:
             continue
-        duration = t.durationDays or (t.effortHours or 4) / productive_hours_per_day
+        duration = t.durationDays or (getattr(t, 'estimatedHours', getattr(t, 'effortHours', 4))) / productive_hours_per_day
         duration = max(0.5, duration)
+        duration_days = max(1, math.ceil(duration))
 
         deps = task_deps.get(tid, [])
         latest_end = project_start
@@ -399,13 +409,32 @@ def _schedule_tasks(
             if dep_end and dep_end > latest_end:
                 latest_end = dep_end
 
-        task_start = latest_end
-        task_end = task_start + timedelta(days=duration)
-        if task_end > project_start + timedelta(days=total_days):
-            task_end = project_start + timedelta(days=total_days)
+        task_start_date = latest_end
+        
+        while True:
+            can_schedule = True
+            for i in range(duration_days):
+                check_date = task_start_date + timedelta(days=i)
+                current_active = daily_allocation.get(check_date.date(), 0)
+                if current_active >= required_headcount:
+                    can_schedule = False
+                    break
+            
+            if can_schedule:
+                break
+            else:
+                task_start_date += timedelta(days=1)
+                
+        for i in range(duration_days):
+            check_date = task_start_date + timedelta(days=i)
+            daily_allocation[check_date.date()] = daily_allocation.get(check_date.date(), 0) + 1
 
-        scheduled_starts[tid] = task_start
-        scheduled_ends[tid] = task_end
+        task_end_date = task_start_date + timedelta(days=duration)
+        if task_end_date > project_start + timedelta(days=total_days):
+            task_end_date = project_start + timedelta(days=total_days)
+
+        scheduled_starts[tid] = task_start_date
+        scheduled_ends[tid] = task_end_date
 
     results: list[dict[str, Any]] = []
     for tid in topo_order:
