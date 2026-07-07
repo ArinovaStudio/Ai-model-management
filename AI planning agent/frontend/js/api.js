@@ -156,6 +156,20 @@ const api = {
         const res = await fetch(`${API_BASE_URL}/${id}/search?query=${encodeURIComponent(query)}`);
         if (!res.ok) throw new Error('Search failed');
         return res.json();
+    },
+
+    async generateIntelligence(id) {
+        const res = await fetch(`${API_BASE_URL}/${id}/intelligence/generate`, {
+            method: 'POST'
+        });
+        if (!res.ok) throw new Error('Failed to generate intelligence');
+        return res.json();
+    },
+
+    async getIntelligence(id) {
+        const res = await fetch(`${API_BASE_URL}/${id}/intelligence`);
+        if (!res.ok) throw new Error('Failed to get intelligence');
+        return res.json();
     }
 };
 

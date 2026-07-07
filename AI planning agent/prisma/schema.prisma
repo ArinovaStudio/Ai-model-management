@@ -11,52 +11,73 @@ datasource db {
 }
 
 model Project {
-  id              String              @id @default(uuid())
-  name            String
-  summary         String?
-  priority        String?
-  basicDetails    String?
-  repository      String?
-  status          Int                 @default(0)
-  createdAt       DateTime            @default(now())
-  progress        Int                 @default(0)
-  currentPhase    String?             @default("Design")
-  projectInfo     ProjectInfo?
-  featureRequests FeatureRequest[]
-  technologies    ProjectTechnology[]
-  riskBlockages   RiskBlockage[]
-  planDocs        PlanDoc[]
-  docs            Doc[]
-  groupingTasks     GroupingTask[]
+  id                  String               @id @default(uuid())
+  name                String
+  summary             String?
+  priority            String?
+  basicDetails        String?
+  repository          String?
+  status              Int                  @default(0)
+  createdAt           DateTime             @default(now())
+  progress            Int                  @default(0)
+  currentPhase        String?              @default("Design")
+  projectInfo         ProjectInfo?
+  projectIntelligence ProjectIntelligence?
+  featureRequests     FeatureRequest[]
+  technologies        ProjectTechnology[]
+  riskBlockages       RiskBlockage[]
+  planDocs            PlanDoc[]
+  docs                Doc[]
+  groupingTasks       GroupingTask[]
   resourceAllocations ResourceAllocation[]
 }
 
+model ProjectIntelligence {
+  id                   String   @id @default(uuid())
+  projectId            String   @unique
+  productStrategy      Json?
+  featureSpecs         Json?
+  systemArchitecture   Json?
+  aiIntelligence       Json?
+  databaseDesign       Json?
+  apiDesign            Json?
+  backendEngineering   Json?
+  frontendArchitecture Json?
+  security             Json?
+  scalability          Json?
+  economics            Json?
+  roadmapAndQa         Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @default(now()) @updatedAt
+  project              Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
 model ProjectInfo {
-  id              String   @id @default(uuid())
-  projectId       String   @unique
+  id              String    @id @default(uuid())
+  projectId       String    @unique
   budget          Float
-  paidAmount      Float?   @default(0)
+  paidAmount      Float?    @default(0)
   clientName      String?
   projectType     String
   startDate       DateTime
   deadline        DateTime?
   supervisorAdmin String?
-  name            String   @default("Unnamed Project")
+  name            String    @default("Unnamed Project")
   description     String?
   scope           String?
   constraints     String?
   metadata        String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @default(now()) @updatedAt
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model FeatureRequest {
-  id          String   @id @default(uuid())
-  clientId    String
-  projectId   String
-  title       String
-  description String
+  id                  String   @id @default(uuid())
+  clientId            String
+  projectId           String
+  title               String
+  description         String
   createdAt           DateTime @default(now())
   status              String   @default("pending")
   priority            String   @default("medium")
@@ -88,39 +109,39 @@ model ProjectTechnology {
 }
 
 model RiskBlockage {
-  id        String   @id @default(uuid())
-  projectId String
-  clientId  String
-  riskTitle       String
-  type            String   @default("risk")
-  category        String   @default("general")
-  title           String   @default("Unknown")
-  description     String   @default("")
-  severity        String   @default("medium")
-  status          String   @default("open")
-  sourceFeatureId String?
-  sourceDocId     String?
-  reportType        String   @default("risk")
-  metadata          String?
-  confidenceScore   Float?   @default(0)
-  planningWarnings  String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @default(now()) @updatedAt
-  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id               String   @id @default(uuid())
+  projectId        String
+  clientId         String
+  riskTitle        String
+  type             String   @default("risk")
+  category         String   @default("general")
+  title            String   @default("Unknown")
+  description      String   @default("")
+  severity         String   @default("medium")
+  status           String   @default("open")
+  sourceFeatureId  String?
+  sourceDocId      String?
+  reportType       String   @default("risk")
+  metadata         String?
+  confidenceScore  Float?   @default(0)
+  planningWarnings String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model ResourceAllocation {
-  id                String   @id @default(uuid())
-  projectId         String
-  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  role              String
-  requiredCount     Int      @default(1)
-  allocatedHours    Float    @default(0)
-  workloadPercentage Float?  @default(0)
-  recommendedCount  Float?   @default(0)
-  metadata          String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @default(now()) @updatedAt
+  id                 String   @id @default(uuid())
+  projectId          String
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  role               String
+  requiredCount      Int      @default(1)
+  allocatedHours     Float    @default(0)
+  workloadPercentage Float?   @default(0)
+  recommendedCount   Float?   @default(0)
+  metadata           String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @default(now()) @updatedAt
 }
 
 model PlanDoc {
@@ -287,24 +308,24 @@ model DocumentAccess {
 }
 
 model GroupingTask {
-  id                 String   @id @default(uuid())
+  id                 String    @id @default(uuid())
   name               String?
   description        String?
-  order              Int      @default(0)
+  order              Int       @default(0)
   featureIds         String?
   projectId          String?
-  project            Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project            Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   tasks              Task[]
   task               Json?
   users              Json?
-  totalEffortHours   Float?   @default(0)
-  totalDurationDays  Float?   @default(0)
-  avgComplexityScore Float?   @default(0)
+  totalEffortHours   Float?    @default(0)
+  totalDurationDays  Float?    @default(0)
+  avgComplexityScore Float?    @default(0)
   sprintNumber       Int?
   sprintStart        DateTime?
   sprintEnd          DateTime?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @default(now()) @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now()) @updatedAt
 }
 
 model LatestUpdate {
@@ -663,31 +684,31 @@ model SubRole {
 }
 
 model Task {
-  id             String   @id @default(uuid())
-  title          String
-  description    String
-  assignee       String
-  assigneeAvatar String?
-  priority       String
-  dueDate        DateTime
-  employeeId     String?
-  tags           String[]
-  attachments    Json[]   @default([])
-  status         String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @default(now()) @updatedAt
-  projectId      String?
-  userId         String?
+  id               String          @id @default(uuid())
+  title            String
+  description      String
+  assignee         String
+  assigneeAvatar   String?
+  priority         String
+  dueDate          DateTime
+  employeeId       String?
+  tags             String[]
+  attachments      Json[]          @default([])
+  status           String
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @default(now()) @updatedAt
+  projectId        String?
+  userId           String?
   featureRequestId String?
   featureRequest   FeatureRequest? @relation(fields: [featureRequestId], references: [id], onDelete: SetNull)
   groupId          String?
-  group            GroupingTask? @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  order            Int      @default(0)
+  group            GroupingTask?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  order            Int             @default(0)
   dependencies     String?
   estimatedHours   Float?
-  complexityScore  Float?   @default(0)
-  effortHours      Float?   @default(0)
-  durationDays     Float?   @default(0)
+  complexityScore  Float?          @default(0)
+  effortHours      Float?          @default(0)
+  durationDays     Float?          @default(0)
   scheduledStart   DateTime?
   scheduledEnd     DateTime?
 }

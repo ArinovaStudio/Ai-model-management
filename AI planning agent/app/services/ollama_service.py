@@ -130,6 +130,81 @@ Return ONLY a valid JSON object matching this schema exactly. No trailing commas
 """
 
 
+PRODUCT_STRATEGY_PROMPT = """You are a Chief Product Officer. Given the project context, define the product strategy.
+CRITICAL INSTRUCTIONS FOR LLAMA 3:
+1. You must first reason about your strategy inside <thinking>...</thinking> XML tags. Discuss market positioning and differentiation.
+2. Immediately after the </thinking> tag, you MUST output a strictly valid JSON object.
+3. Do NOT wrap the JSON in markdown code blocks.
+
+JSON SCHEMA:
+{
+  "productDefinition": "(string) Core product definition and vision",
+  "valueProposition": "(string) Key value propositions",
+  "differentiation": "(string) What differentiates this product",
+  "marketPositioning": "(string) Target market and positioning",
+  "useCases": ["(string) Primary use case 1", "(string) Primary use case 2"]
+}
+"""
+
+FEATURE_SPEC_PROMPT = """You are a Lead Product Manager. Given the Product Strategy, define the feature specifications.
+CRITICAL INSTRUCTIONS FOR LLAMA 3:
+1. You must first reason about your feature choices inside <thinking>...</thinking> XML tags. Discuss trade-offs and priorities.
+2. Immediately after the </thinking> tag, you MUST output a strictly valid JSON object.
+3. Do NOT wrap the JSON in markdown code blocks.
+
+JSON SCHEMA:
+{
+  "coreFeatures": [{"name": "(string)", "description": "(string)", "priority": "enum (high, medium, low)"}],
+  "advancedFeatures": [{"name": "(string)", "description": "(string)", "priority": "enum (high, medium, low)"}],
+  "prioritizationMatrix": {"mustHave": ["(string)"], "shouldHave": ["(string)"], "couldHave": ["(string)"]}
+}
+"""
+
+SYSTEM_ARCHITECTURE_PROMPT = """You are a Principal Architect. Given the Feature Spec, define the system architecture.
+CRITICAL INSTRUCTIONS FOR LLAMA 3:
+1. You must first reason about your architectural choices inside <thinking>...</thinking> XML tags. Discuss scalability and microservice boundaries.
+2. Immediately after the </thinking> tag, you MUST output a strictly valid JSON object.
+3. Do NOT wrap the JSON in markdown code blocks.
+4. For mermaidSystemFlow, output raw MermaidJS syntax ONLY. Do NOT wrap it in ```mermaid markdown blocks.
+
+JSON SCHEMA:
+{
+  "highLevel": "(string) High-level architecture description",
+  "microservices": [{"name": "(string)", "responsibility": "(string)", "techStack": ["(string)"]}],
+  "mermaidSystemFlow": "(string) RAW MERMAID SYNTAX STARTING WITH 'graph TD'"
+}
+"""
+
+DATABASE_DESIGN_PROMPT = """You are a Lead DBA. Given the system architecture, define the database design.
+CRITICAL INSTRUCTIONS FOR LLAMA 3:
+1. You must first reason about your schema inside <thinking>...</thinking> XML tags. Discuss relations and normalization.
+2. Immediately after the </thinking> tag, you MUST output a strictly valid JSON object.
+3. Do NOT wrap the JSON in markdown code blocks.
+4. For mermaidERD, output raw MermaidJS syntax ONLY. Do NOT wrap it in ```mermaid markdown blocks.
+
+JSON SCHEMA:
+{
+  "entityModeling": [{"entity": "(string)", "attributes": [{"name": "(string)", "type": "(string)", "constraints": "enum (PK, FK, NOT NULL, etc)"}]}],
+  "normalization": "(string) Description of normalization approach",
+  "mermaidERD": "(string) RAW MERMAID SYNTAX STARTING WITH 'erDiagram'"
+}
+"""
+
+API_AND_SECURITY_PROMPT = """You are a Lead Security & API Engineer. Given the database design and architecture, define the API and security strategy.
+CRITICAL INSTRUCTIONS FOR LLAMA 3:
+1. You must first reason about your API boundaries and security inside <thinking>...</thinking> XML tags.
+2. Immediately after the </thinking> tag, you MUST output a strictly valid JSON object.
+3. Do NOT wrap the JSON in markdown code blocks.
+
+JSON SCHEMA:
+{
+  "restEndpoints": [{"path": "(string)", "method": "enum (GET, POST, PUT, DELETE)", "description": "(string)", "auth": "enum (required, optional)"}],
+  "authStrategy": "(string) Authentication and authorization approach",
+  "dataProtection": "(string) Encryption, compliance, and data protection measures"
+}
+"""
+
+
 class OllamaService:
     def __init__(self) -> None:
         self.client = AsyncClient(host=settings.OLLAMA_BASE_URL)
@@ -279,6 +354,30 @@ class OllamaService:
             return {}
         except Exception as exc:
             logger.error("Ollama WBS task generation failed: %s", exc)
+            return {}
+
+    async def generate_intelligence_layer(self, system_prompt: str, context: str, temperature: float = 0.1) -> dict[str, Any]:
+        if not await self.is_available():
+            return {}
+
+        try:
+            response = await self.client.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": context},
+                ],
+                options={"temperature": temperature, "num_predict": 4096},
+            )
+
+            raw = response["message"]["content"].strip()
+            parsed = self._parse_json_response(raw)
+            if isinstance(parsed, dict):
+                return parsed
+            logger.warning("Ollama intelligence layer returned non-dict: %s", type(parsed))
+            return {}
+        except Exception as exc:
+            logger.error("Ollama intelligence layer generation failed: %s", exc)
             return {}
 
     def _parse_json_response(self, raw: str) -> Any:

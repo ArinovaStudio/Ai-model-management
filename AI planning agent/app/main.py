@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.prisma import connect_db, disconnect_db, db
-from app.routers import analysis, context, docs, estimation, projects, resource_planning, schedule, validation, wbs
+from app.routers import analysis, context, docs, estimation, intelligence, projects, resource_planning, schedule, validation, wbs
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,6 +59,7 @@ app.include_router(estimation.router, prefix="/api/v1/projects", tags=["Estimati
 app.include_router(resource_planning.router, prefix="/api/v1/projects", tags=["Resource Planning"])
 app.include_router(schedule.router, prefix="/api/v1/projects", tags=["Schedule"])
 app.include_router(validation.router, prefix="/api/v1/projects", tags=["Validation"])
+app.include_router(intelligence.router, tags=["Intelligence"])
 
 
 @app.get("/health")

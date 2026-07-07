@@ -1,6 +1,7 @@
 const workspace = {
     projectId: null,
     projectData: null,
+    projectIntelligence: null,
 
     async init() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -18,7 +19,13 @@ const workspace = {
         try {
             this.projectData = await window.api.getProject(this.projectId);
             document.getElementById('project-title').textContent = this.projectData.name || 'Project Workspace';
-            
+
+            try {
+                this.projectIntelligence = await window.api.getIntelligence(this.projectId);
+            } catch(e) {
+                console.warn("No intelligence data found yet");
+            }
+
             if (this.projectData.wbs_tasks_count > 0 || this.projectData.milestones_count > 0) {
                 this.showPlanState();
                 
@@ -84,6 +91,16 @@ const workspace = {
             this.updateStep(1, 'active');
             await window.api.analyzeProject(this.projectId);
             this.updateStep(1, 'done');
+
+            console.log("Generating Project Intelligence...");
+            btn.textContent = 'Generating Strategy & Architecture...';
+            try {
+                const intelligenceData = await window.api.generateIntelligence(this.projectId);
+                this.projectIntelligence = intelligenceData;
+                console.log("Intelligence generated:", intelligenceData);
+            } catch(e) {
+                console.warn("Intelligence generation failed/skipped", e);
+            }
 
             this.updateStep(2, 'active');
             await window.api.generateWBS(this.projectId, prefs);
