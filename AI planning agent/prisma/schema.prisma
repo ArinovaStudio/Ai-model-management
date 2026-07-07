@@ -39,7 +39,7 @@ model ProjectInfo {
   clientName      String?
   projectType     String
   startDate       DateTime
-  deadline        DateTime
+  deadline        DateTime?
   supervisorAdmin String?
   name            String   @default("Unnamed Project")
   description     String?

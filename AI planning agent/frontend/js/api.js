@@ -26,6 +26,16 @@ const api = {
         return res.json();
     },
 
+    async updateProjectInfo(id, data) {
+        const res = await fetch(`${API_BASE_URL}/${id}/info`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!res.ok) throw new Error('Failed to update project info');
+        return res.json();
+    },
+
     async uploadDocs(id, file, docType = 'plandoc') {
         const content = await file.text();
         const payload = {

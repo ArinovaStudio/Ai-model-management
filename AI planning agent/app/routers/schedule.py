@@ -97,6 +97,7 @@ async def generate_schedule_endpoint(
             warnings=warnings_list,
             feasible=result["feasible"],
             required_headcount=result.get("required_headcount"),
+            expected_deadline=result.get("expected_deadline"),
         )
 
     except ValueError as exc:
@@ -194,11 +195,15 @@ async def get_schedule(project_id: str) -> ScheduleResponse:
 
         import json
         req_hc = None
+        exp_dl = None
         if project.summary:
             try:
                 summ = json.loads(project.summary)
-                if "schedule" in summ and "required_headcount" in summ["schedule"]:
-                    req_hc = summ["schedule"]["required_headcount"]
+                if "schedule" in summ:
+                    req_hc = summ["schedule"].get("required_headcount")
+                    if summ["schedule"].get("expected_deadline"):
+                        from datetime import datetime
+                        exp_dl = datetime.fromisoformat(summ["schedule"]["expected_deadline"])
             except Exception:
                 pass
 
@@ -223,6 +228,7 @@ async def get_schedule(project_id: str) -> ScheduleResponse:
             warnings=warnings_vec,
             feasible=feasible,
             required_headcount=req_hc,
+            expected_deadline=exp_dl,
         )
 
     except HTTPException:

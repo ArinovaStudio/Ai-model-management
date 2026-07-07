@@ -32,25 +32,33 @@ async def generate_schedule(
         raise ValueError(f"Project {project_id} not found")
 
     info = project.projectInfo
-    if not info or not info.startDate or not info.deadline:
-        raise ValueError("Project start date and deadline are required in ProjectInfo")
+    if not info or not info.startDate:
+        raise ValueError("Project start date is required in ProjectInfo")
 
     start = info.startDate
-    deadline = info.deadline
     if start.tzinfo is None:
         start = start.replace(tzinfo=timezone.utc)
-    if deadline.tzinfo is None:
-        deadline = deadline.replace(tzinfo=timezone.utc)
-
-    total_available_days = max(1, (deadline - start).days)
-
-    if reindex:
-        await _clear_schedule(project_id)
 
     groups = project.groupingTasks or []
     all_tasks: list[Any] = []
     for g in groups:
         all_tasks.extend(getattr(g, "tasks", None) or [])
+
+    total_task_hours = sum((t.effortHours or getattr(t, 'estimatedHours', 0) or 4.0) for t in all_tasks)
+
+    if not info.deadline:
+        required_headcount = 2
+        total_available_days = max(1, math.ceil(total_task_hours / (required_headcount * productive_hours_per_day)))
+        deadline = start + timedelta(days=total_available_days)
+    else:
+        deadline = info.deadline
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=timezone.utc)
+        total_available_days = max(1, (deadline - start).days)
+        required_headcount = max(2, math.ceil(total_task_hours / (total_available_days * productive_hours_per_day)))
+
+    if reindex:
+        await _clear_schedule(project_id)
 
     warnings: list[dict[str, str]] = []
 
@@ -65,9 +73,6 @@ async def generate_schedule(
             ),
             "severity": "critical",
         })
-
-    total_task_hours = sum((t.effortHours or getattr(t, 'estimatedHours', 0) or 4.0) for t in all_tasks)
-    required_headcount = max(2, math.ceil(total_task_hours / (total_available_days * productive_hours_per_day)))
 
     # --- Generate Milestones ---
     milestones = await _generate_milestones(project_id, start, deadline)
@@ -105,6 +110,7 @@ async def generate_schedule(
     project_summary["schedule"] = {
         "start_date": start.isoformat(),
         "deadline": deadline.isoformat(),
+        "expected_deadline": deadline.isoformat() if not info.deadline else None,
         "total_estimated_duration": round(total_estimated_duration, 1),
         "feasible": total_estimated_duration <= total_available_days,
         "required_headcount": required_headcount,
@@ -134,6 +140,7 @@ async def generate_schedule(
         "warnings": warnings,
         "feasible": total_estimated_duration <= total_available_days,
         "required_headcount": required_headcount,
+        "expected_deadline": deadline if not info.deadline else None,
     }
 
 

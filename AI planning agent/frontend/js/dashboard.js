@@ -68,7 +68,6 @@ const dashboard = {
         const data = {
             name: document.getElementById('project-name').value,
             start_date: new Date().toISOString(),
-            deadline: new Date(document.getElementById('project-deadline').value).toISOString(),
             metadata: {
                 client_name: document.getElementById('project-client').value,
                 project_type: document.getElementById('project-type').value,

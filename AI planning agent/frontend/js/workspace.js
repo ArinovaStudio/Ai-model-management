@@ -19,16 +19,19 @@ const workspace = {
             this.projectData = await window.api.getProject(this.projectId);
             document.getElementById('project-title').textContent = this.projectData.name || 'Project Workspace';
             
-            // If project already has WBS/Schedule generated, show plan state
             if (this.projectData.wbs_tasks_count > 0 || this.projectData.milestones_count > 0) {
                 this.showPlanState();
                 
                 try {
                     const val = await window.api.getValidation(this.projectId);
                     this.updateConfidenceBanner(val.confidence.score);
-                    // The getValidation endpoint might not return warnings from the DB history accurately if not stored, but let's try
                     if (val.warnings) this.renderWarnings(val.warnings);
                 } catch(e) { console.warn("No validation data found"); }
+
+                try {
+                    const sched = await window.api.getSchedule(this.projectId);
+                    this.updateExpectedDeadlineBanner(sched.expected_deadline);
+                } catch(e) { console.warn("No schedule found"); }
 
                 await this.loadWBS();
             }
@@ -73,6 +76,11 @@ const workspace = {
         stepper.style.display = 'block';
 
         try {
+            const descInput = document.getElementById('project-description-input');
+            if (descInput && descInput.value.trim()) {
+                await window.api.updateProjectInfo(this.projectId, { description: descInput.value.trim() });
+            }
+
             this.updateStep(1, 'active');
             await window.api.analyzeProject(this.projectId);
             this.updateStep(1, 'done');
@@ -106,6 +114,11 @@ const workspace = {
             // Set Confidence Banner and Warnings
             this.updateConfidenceBanner(validation.confidence.score);
             this.renderWarnings(validation.warnings);
+
+            try {
+                const sched = await window.api.getSchedule(this.projectId);
+                this.updateExpectedDeadlineBanner(sched.expected_deadline);
+            } catch(e) { console.warn("No schedule found"); }
             
             // Transition to Plan State
             setTimeout(() => {
@@ -140,6 +153,17 @@ const workspace = {
         if (score >= 80) banner.classList.add('badge-success');
         else if (score >= 50) banner.classList.add('badge-warning');
         else banner.classList.add('badge-neutral');
+    },
+
+    updateExpectedDeadlineBanner(deadlineStr) {
+        const banner = document.getElementById('expected-deadline-banner');
+        if (deadlineStr) {
+            banner.style.display = 'inline-block';
+            const date = new Date(deadlineStr).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+            banner.textContent = `Expected Deadline: ${date}`;
+        } else {
+            banner.style.display = 'none';
+        }
     },
 
     renderWarnings(warnings) {

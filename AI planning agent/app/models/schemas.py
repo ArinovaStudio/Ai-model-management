@@ -8,7 +8,7 @@ class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     start_date: datetime
-    deadline: datetime
+    deadline: Optional[datetime] = None
     metadata: Optional[dict[str, Any]] = None
 
 
@@ -54,7 +54,7 @@ class ProjectInfoResponse(BaseModel):
     name: str
     description: Optional[str] = None
     start_date: datetime
-    deadline: datetime
+    deadline: Optional[datetime] = None
     scope: Optional[str] = None
     constraints: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
@@ -385,6 +385,7 @@ class ScheduleResponse(BaseModel):
     warnings: list[ScheduleWarning] = []
     feasible: bool = True
     required_headcount: Optional[int] = None
+    expected_deadline: Optional[datetime] = None
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
