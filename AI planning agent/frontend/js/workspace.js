@@ -220,6 +220,8 @@ const workspace = {
         if (tabName === 'schedule') this.loadSchedule();
         if (tabName === 'resources') this.loadResources();
         if (tabName === 'risks') this.loadGapAnalysis();
+        if (tabName === 'strategy') this.loadStrategy();
+        if (tabName === 'architecture') this.loadArchitecture();
     },
 
     async loadWBS() {
@@ -227,13 +229,18 @@ const workspace = {
         const container = document.getElementById('wbs-container');
         container.innerHTML = '<p>Loading WBS...</p>';
         try {
-            // Using estimation endpoint since it includes task hours
-            const res = await window.api.getEstimates(this.projectId);
+            // Using estimation endpoint since it includes task hours, and wbs tasks to get descriptions
+            const [res, wbsTasks] = await Promise.all([
+                window.api.getEstimates(this.projectId),
+                window.api.getWBSTasks(this.projectId)
+            ]);
             container.innerHTML = '';
             
-            // 1. Build Global Task ID -> Title Map
+            // 1. Build Global Task ID -> Title Map & Task ID -> Description Map
             const taskIdToTitle = {};
+            const taskIdToDesc = {};
             res.groups.forEach(g => g.tasks.forEach(t => taskIdToTitle[t.task_id] = t.task_title));
+            wbsTasks.forEach(t => taskIdToDesc[t.id] = t.description);
 
             res.groups.forEach(g => {
                 // 2. Group by Milestone
@@ -255,7 +262,15 @@ const workspace = {
                 let tasksHtml = '';
                 
                 // Render Milestones
-                Object.keys(milestoneGroups).forEach(mName => {
+                const sortedMilestoneNames = Object.keys(milestoneGroups).sort((a, b) => {
+                    const matchA = a.match(/Milestone\s*(\d+)/i);
+                    const matchB = b.match(/Milestone\s*(\d+)/i);
+                    const numA = matchA ? parseInt(matchA[1], 10) : 999;
+                    const numB = matchB ? parseInt(matchB[1], 10) : 999;
+                    return numA - numB;
+                });
+
+                sortedMilestoneNames.forEach(mName => {
                     const mTasks = milestoneGroups[mName];
                     tasksHtml += `
                         <div style="margin-left: 1.5rem; margin-top: 0.5rem; border-left: 2px solid var(--color-sedate-gray-light); padding-left: 1rem;">
@@ -266,14 +281,19 @@ const workspace = {
                                 ${mTasks.map(t => {
                                     const depTitles = (t.dependencies || []).map(id => taskIdToTitle[id] || id).join(', ');
                                     const depHtml = (t.dependencies && t.dependencies.length > 0) 
-                                        ? \`<span title="Depends on: ${depTitles}" style="cursor: help; margin-left: 0.5rem; font-size: 0.8rem;">🔗</span>\` 
+                                        ? `<span title="Depends on: ${depTitles}" style="cursor: help; margin-left: 0.5rem; font-size: 0.8rem;">🔗</span>` 
                                         : '';
-                                    return \`
-                                    <div class="tree-task" style="margin-left: 0;">
-                                        <span>${t.cleanTitle}${depHtml}</span>
-                                        <span style="color: var(--text-muted); font-size: 0.8rem;">${t.effort_hours}h</span>
+                                    return `
+                                    <div class="tree-task" style="margin-left: 0; cursor: pointer; flex-direction: column; align-items: flex-start; gap: 0.25rem;" onclick="const desc = this.querySelector('.task-desc-detail'); desc.style.display = desc.style.display === 'none' ? 'block' : 'none'; event.stopPropagation();">
+                                        <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                                            <span style="font-weight: 500;">${t.cleanTitle}${depHtml}</span>
+                                            <span style="color: var(--text-muted); font-size: 0.8rem;">${t.effort_hours}h</span>
+                                        </div>
+                                        <div class="task-desc-detail" style="display: none; font-size: 0.8rem; color: var(--text-muted); padding: 0.5rem; background: rgba(0,0,0,0.02); border-left: 2px solid var(--color-sedate-gray); width: 100%; border-radius: var(--radius-sm); box-sizing: border-box; margin-top: 0.25rem;">
+                                            ${taskIdToDesc[t.task_id] || 'No further description available.'}
+                                        </div>
                                     </div>
-                                    \`
+                                    `
                                 }).join('')}
                             </div>
                         </div>
@@ -285,14 +305,19 @@ const workspace = {
                     tasksHtml += generalTasks.map(t => {
                         const depTitles = (t.dependencies || []).map(id => taskIdToTitle[id] || id).join(', ');
                         const depHtml = (t.dependencies && t.dependencies.length > 0) 
-                            ? \`<span title="Depends on: ${depTitles}" style="cursor: help; margin-left: 0.5rem; font-size: 0.8rem;">🔗</span>\` 
+                            ? `<span title="Depends on: ${depTitles}" style="cursor: help; margin-left: 0.5rem; font-size: 0.8rem;">🔗</span>` 
                             : '';
-                        return \`
-                        <div class="tree-task">
-                            <span>${t.cleanTitle}${depHtml}</span>
-                            <span style="color: var(--text-muted); font-size: 0.8rem;">${t.effort_hours}h</span>
+                        return `
+                        <div class="tree-task" style="cursor: pointer; flex-direction: column; align-items: flex-start; gap: 0.25rem;" onclick="const desc = this.querySelector('.task-desc-detail'); desc.style.display = desc.style.display === 'none' ? 'block' : 'none'; event.stopPropagation();">
+                            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                                <span style="font-weight: 500;">${t.cleanTitle}${depHtml}</span>
+                                <span style="color: var(--text-muted); font-size: 0.8rem;">${t.effort_hours}h</span>
+                            </div>
+                            <div class="task-desc-detail" style="display: none; font-size: 0.8rem; color: var(--text-muted); padding: 0.5rem; background: rgba(0,0,0,0.02); border-left: 2px solid var(--color-sedate-gray); width: 100%; border-radius: var(--radius-sm); box-sizing: border-box; margin-top: 0.25rem;">
+                                ${taskIdToDesc[t.task_id] || 'No further description available.'}
+                            </div>
                         </div>
-                        \`
+                        `
                     }).join('');
                 }
 
@@ -483,6 +508,257 @@ const workspace = {
             `;
         } catch (e) {
             container.innerHTML = '<div class="card" style="text-align:center; color: var(--text-muted);">No Gap Analysis available for this project.</div>';
+        }
+    },
+
+    async loadStrategy() {
+        const container = document.getElementById('strategy-container');
+        if (container.innerHTML !== '') return;
+
+        container.innerHTML = '<p>Loading Product Strategy...</p>';
+        try {
+            if (!this.projectIntelligence) {
+                this.projectIntelligence = await window.api.getIntelligence(this.projectId);
+            }
+            const pi = this.projectIntelligence;
+            const strat = pi.productStrategy || {};
+            const feats = pi.featureSpecs || {};
+
+            if (!strat.productDefinition && (!feats.coreFeatures || feats.coreFeatures.length === 0)) {
+                container.innerHTML = '<div class="card" style="text-align:center; color: var(--text-muted);">No product strategy details generated yet. Run the pipeline first.</div>';
+                return;
+            }
+
+            const coreList = (feats.coreFeatures || []).map(f => `
+                <div style="background: var(--bg-main); border: 1px solid var(--color-sedate-gray-light); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 0.5rem;">
+                    <div style="font-weight:600; font-size:0.95rem;">${f.name}</div>
+                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">${f.description}</div>
+                </div>
+            `).join('');
+
+            const advList = (feats.advancedFeatures || []).map(f => `
+                <div style="background: var(--bg-main); border: 1px solid var(--color-sedate-gray-light); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 0.5rem;">
+                    <div style="font-weight:600; font-size:0.95rem;">${f.name} <span class="badge badge-neutral" style="font-size:0.7rem; padding:0.1rem 0.4rem;">${f.priority}</span></div>
+                    <div style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">${f.description}</div>
+                </div>
+            `).join('');
+
+            container.innerHTML = `
+                <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1.5rem;">
+                    <div class="card">
+                        <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Product Vision & Strategy</h4>
+                        
+                        <div style="margin-bottom: 1.5rem;">
+                            <h5 style="color:var(--color-sage); margin-bottom:0.5rem;">Product Definition</h5>
+                            <p style="font-size:0.9rem; line-height:1.5;">${strat.productDefinition || 'N/A'}</p>
+                        </div>
+                        
+                        <div style="margin-bottom: 1.5rem;">
+                            <h5 style="color:var(--color-sage); margin-bottom:0.5rem;">Core Value Proposition</h5>
+                            <p style="font-size:0.9rem; line-height:1.5;">${strat.valueProposition || 'N/A'}</p>
+                        </div>
+
+                        <div style="margin-bottom: 1.5rem;">
+                            <h5 style="color:var(--color-sage); margin-bottom:0.5rem;">Market Differentiation</h5>
+                            <p style="font-size:0.9rem; line-height:1.5;">${strat.differentiation || 'N/A'}</p>
+                        </div>
+
+                        <div>
+                            <h5 style="color:var(--color-sage); margin-bottom:0.5rem;">Target Market & Positioning</h5>
+                            <p style="font-size:0.9rem; line-height:1.5;">${strat.marketPositioning || 'N/A'}</p>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="card" style="margin-bottom:1.5rem;">
+                            <h4 style="margin-bottom: 1rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Core Scope (Must Have)</h4>
+                            ${coreList || '<p style="color:var(--text-muted); font-size:0.85rem;">No core features defined</p>'}
+                        </div>
+                        
+                        <div class="card">
+                            <h4 style="margin-bottom: 1rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Advanced Features</h4>
+                            ${advList || '<p style="color:var(--text-muted); font-size:0.85rem;">No advanced features defined</p>'}
+                        </div>
+                    </div>
+                </div>
+            `;
+        } catch(e) {
+            container.innerHTML = '<div class="card" style="text-align:center; color: var(--text-muted);">No Product Strategy available.</div>';
+        }
+    },
+
+    async loadArchitecture() {
+        const container = document.getElementById('architecture-container');
+        if (container.innerHTML !== '') return;
+
+        container.innerHTML = '<p>Loading Architecture & Design...</p>';
+        try {
+            if (!this.projectIntelligence) {
+                this.projectIntelligence = await window.api.getIntelligence(this.projectId);
+            }
+            const pi = this.projectIntelligence;
+            const arch = pi.systemArchitecture || {};
+            const dbDesign = pi.databaseDesign || {};
+            const apiDesign = pi.apiDesign || {};
+            const sec = pi.security || {};
+
+            if (!arch.highLevel && !arch.microservices) {
+                container.innerHTML = '<div class="card" style="text-align:center; color: var(--text-muted);">No system architecture generated yet. Run the pipeline first.</div>';
+                return;
+            }
+
+            // Build microservices rows
+            const serviceRows = (arch.microservices || []).map(s => `
+                <tr>
+                    <td><strong>${s.name}</strong></td>
+                    <td>${(s.techStack || []).join(', ')}</td>
+                    <td>${s.responsibility}</td>
+                </tr>
+            `).join('');
+
+            // Build Database Design display
+            let dbHtml = '<p style="font-size:0.9rem; color:var(--text-muted);">No database schemas defined.</p>';
+            if (dbDesign.entities && dbDesign.entities.length > 0) {
+                dbHtml = dbDesign.entities.map(e => `
+                    <div style="margin-bottom: 1rem; padding: 1rem; background: var(--bg-main); border: 1px solid var(--color-sedate-gray-light); border-radius: var(--radius-md);">
+                        <div style="font-weight:600; font-size:0.95rem; margin-bottom:0.5rem; color:var(--color-dusty-rose);">Table: ${e.name}</div>
+                        <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">${e.description || ''}</div>
+                        <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
+                            <thead>
+                                <tr style="border-bottom:1px solid var(--color-sedate-gray-light); text-align:left;">
+                                    <th style="padding:0.25rem;">Field</th>
+                                    <th style="padding:0.25rem;">Type</th>
+                                    <th style="padding:0.25rem;">Constraints</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${(e.fields || []).map(f => `
+                                    <tr style="border-bottom:1px dashed rgba(0,0,0,0.05);">
+                                        <td style="padding:0.25rem;"><code>${f.name}</code></td>
+                                        <td style="padding:0.25rem; color:var(--text-muted);">${f.type}</td>
+                                        <td style="padding:0.25rem; color:var(--text-muted);">${f.constraints || ''}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `).join('');
+            } else if (typeof dbDesign === 'object' && Object.keys(dbDesign).length > 0) {
+                dbHtml = `<pre style="font-size:0.85rem; background:var(--bg-main); padding:1rem; border-radius:4px; overflow-x:auto;">${JSON.stringify(dbDesign, null, 2)}</pre>`;
+            }
+
+            // Build API Design display
+            let apiHtml = '<p style="font-size:0.9rem; color:var(--text-muted);">No APIs defined.</p>';
+            if (apiDesign.endpoints && apiDesign.endpoints.length > 0) {
+                apiHtml = apiDesign.endpoints.map(ep => `
+                    <div style="margin-bottom: 1rem; padding: 1rem; background: var(--bg-main); border: 1px solid var(--color-sedate-gray-light); border-radius: var(--radius-md);">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+                            <span style="font-weight:600; font-size:0.95rem;"><code>${ep.path}</code></span>
+                            <span class="badge badge-success" style="font-size:0.75rem;">${ep.method}</span>
+                        </div>
+                        <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">${ep.description}</div>
+                        ${ep.requestPayload ? `<div style="font-size:0.8rem; margin-top:0.25rem;"><strong>Request:</strong> <code>${JSON.stringify(ep.requestPayload)}</code></div>` : ''}
+                        ${ep.responsePayload ? `<div style="font-size:0.8rem; margin-top:0.25rem;"><strong>Response:</strong> <code>${JSON.stringify(ep.responsePayload)}</code></div>` : ''}
+                    </div>
+                `).join('');
+            } else if (typeof apiDesign === 'object' && Object.keys(apiDesign).length > 0) {
+                apiHtml = `<pre style="font-size:0.85rem; background:var(--bg-main); padding:1rem; border-radius:4px; overflow-x:auto;">${JSON.stringify(apiDesign, null, 2)}</pre>`;
+            }
+
+            // Build Security
+            let secHtml = '<p style="font-size:0.9rem; color:var(--text-muted);">No security specs defined.</p>';
+            if (sec.authentication || sec.authorization || sec.dataProtection) {
+                secHtml = `
+                    <div style="font-size:0.9rem; line-height:1.5;">
+                        <h5 style="margin-bottom:0.25rem; color:var(--color-sage);">Authentication</h5>
+                        <p style="margin-bottom:1rem; color:var(--text-muted);">${sec.authentication || 'N/A'}</p>
+                        
+                        <h5 style="margin-bottom:0.25rem; color:var(--color-sage);">Authorization</h5>
+                        <p style="margin-bottom:1rem; color:var(--text-muted);">${sec.authorization || 'N/A'}</p>
+
+                        <h5 style="margin-bottom:0.25rem; color:var(--color-sage);">Data Protection & Encryption</h5>
+                        <p style="color:var(--text-muted);">${sec.dataProtection || 'N/A'}</p>
+                    </div>
+                `;
+            } else if (typeof sec === 'object' && Object.keys(sec).length > 0) {
+                secHtml = `<pre style="font-size:0.85rem; background:var(--bg-main); padding:1rem; border-radius:4px; overflow-x:auto;">${JSON.stringify(sec, null, 2)}</pre>`;
+            }
+
+            // Render Layout
+            container.innerHTML = `
+                <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1.5rem;">
+                    <div>
+                        <!-- System Flow Diagram -->
+                        ${arch.mermaidSystemFlow ? `
+                            <div class="card" style="margin-bottom: 1.5rem;">
+                                <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">System Flow Diagram</h4>
+                                <div class="mermaid" style="display:flex; justify-content:center; padding:1rem; background:white; border-radius:var(--radius-md); overflow-x:auto;">
+                                    ${arch.mermaidSystemFlow}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <!-- Microservices Table -->
+                        <div class="card" style="padding: 0; overflow: hidden; margin-bottom:1.5rem;">
+                            <div style="padding: 1.5rem 1.5rem 0 1.5rem;">
+                                <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Microservices Stack</h4>
+                            </div>
+                            <table class="table" style="margin: 0;">
+                                <thead>
+                                    <tr>
+                                        <th>Service</th>
+                                        <th>Tech Stack</th>
+                                        <th>Responsibility</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${serviceRows || '<tr><td colspan="3">No microservices defined</td></tr>'}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Database Design -->
+                        <div class="card">
+                            <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Database Design & Schemas</h4>
+                            ${dbHtml}
+                        </div>
+                    </div>
+
+                    <div>
+                        <!-- High Level Architecture -->
+                        <div class="card" style="margin-bottom: 1.5rem;">
+                            <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Architecture Overview</h4>
+                            <p style="font-size:0.95rem; line-height:1.5; font-weight:500; color:var(--color-sedate-gray);">${arch.highLevel || 'N/A'}</p>
+                        </div>
+
+                        <!-- API Design -->
+                        <div class="card" style="margin-bottom:1.5rem;">
+                            <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">REST API Reference</h4>
+                            ${apiHtml}
+                        </div>
+
+                        <!-- Security -->
+                        <div class="card">
+                            <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Security & Compliance</h4>
+                            ${secHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Initialize Mermaid Flowcharts
+            setTimeout(() => {
+                if (window.mermaid) {
+                    try {
+                        window.mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+                    } catch(err) {
+                        console.error("Mermaid rendering failed:", err);
+                    }
+                }
+            }, 100);
+
+        } catch(e) {
+            container.innerHTML = '<div class="card" style="text-align:center; color: var(--text-muted);">No Architecture & Design specification available.</div>';
         }
     },
 

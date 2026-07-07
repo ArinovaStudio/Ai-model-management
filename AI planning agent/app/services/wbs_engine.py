@@ -55,6 +55,7 @@ async def generate_wbs(
             "featureRequests": True,
             "projectInfo": True,
             "technologies": True,
+            "projectIntelligence": True,
         },
     )
 
@@ -84,6 +85,14 @@ async def generate_wbs(
         scope = info.scope or ""
         constraints = info.constraints or ""
         context = f"Project: {info.name}\nDescription: {desc}\nScope: {scope}\nConstraints: {constraints}\nTechnology Stack: {tech_stack}\n"
+
+    if getattr(project, "projectIntelligence", None):
+        pi = project.projectIntelligence
+        context += "\n--- ARCHITECTURAL INTELLIGENCE ---\n"
+        if pi.systemArchitecture:
+            context += f"System Architecture:\n{json.dumps(pi.systemArchitecture, indent=2)}\n"
+        if pi.featureSpecs:
+            context += f"Feature Specifications:\n{json.dumps(pi.featureSpecs, indent=2)}\n"
 
     stored_groups: list[Any] = []
     global_task_index = 0

@@ -207,7 +207,7 @@ JSON SCHEMA:
 
 class OllamaService:
     def __init__(self) -> None:
-        self.client = AsyncClient(host=settings.OLLAMA_BASE_URL)
+        self.client = AsyncClient(host=settings.OLLAMA_BASE_URL, timeout=180.0)
         self.model = settings.OLLAMA_MODEL
         self._available: Optional[bool] = None
 
@@ -391,14 +391,14 @@ class OllamaService:
         except json.JSONDecodeError:
             pass
         try:
-            start = raw.index("[")
-            end = raw.rindex("]") + 1
+            start = raw.index("{")
+            end = raw.rindex("}") + 1
             return json.loads(raw[start:end])
         except (ValueError, json.JSONDecodeError):
             pass
         try:
-            start = raw.index("{")
-            end = raw.rindex("}") + 1
+            start = raw.index("[")
+            end = raw.rindex("]") + 1
             return json.loads(raw[start:end])
         except (ValueError, json.JSONDecodeError):
             logger.warning("Failed to parse Ollama response as JSON: %.200s", raw)

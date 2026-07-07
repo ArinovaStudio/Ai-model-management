@@ -145,8 +145,8 @@ async def get_schedule(project_id: str) -> ScheduleResponse:
             )
 
         info = project.projectInfo
-        start = info.startDate if info else milestones[0].dueDate
-        deadline = info.deadline if info else milestones[-1].dueDate
+        start = info.startDate if (info and info.startDate) else milestones[0].dueDate
+        deadline = info.deadline if (info and info.deadline) else milestones[-1].dueDate
 
         groups = project.groupingTasks or []
         sprints_list: list[SprintInfo] = []

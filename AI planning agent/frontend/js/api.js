@@ -170,6 +170,12 @@ const api = {
         const res = await fetch(`${API_BASE_URL}/${id}/intelligence`);
         if (!res.ok) throw new Error('Failed to get intelligence');
         return res.json();
+    },
+
+    async getWBSTasks(id) {
+        const res = await fetch(`${API_BASE_URL}/${id}/wbs/tasks`);
+        if (!res.ok) throw new Error('Failed to get WBS tasks');
+        return res.json();
     }
 };
 

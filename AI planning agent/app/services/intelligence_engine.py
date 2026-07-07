@@ -2,6 +2,7 @@ import json
 import logging
 
 from app.db.prisma import db
+from prisma import Json
 from app.services.ollama_service import (
     API_AND_SECURITY_PROMPT,
     DATABASE_DESIGN_PROMPT,
@@ -72,21 +73,23 @@ async def generate_project_intelligence(project_id: str) -> dict | None:
         where={"projectId": project_id},
         data={
             "create": {
-                "projectId": project_id,
-                "productStrategy": strategy,
-                "featureSpecs": features,
-                "systemArchitecture": architecture,
-                "databaseDesign": database,
-                "apiDesign": api_security,
-                "security": api_security,
+                "project": {
+                    "connect": {"id": project_id}
+                },
+                "productStrategy": Json(strategy),
+                "featureSpecs": Json(features),
+                "systemArchitecture": Json(architecture),
+                "databaseDesign": Json(database),
+                "apiDesign": Json(api_security),
+                "security": Json(api_security),
             },
             "update": {
-                "productStrategy": strategy,
-                "featureSpecs": features,
-                "systemArchitecture": architecture,
-                "databaseDesign": database,
-                "apiDesign": api_security,
-                "security": api_security,
+                "productStrategy": Json(strategy),
+                "featureSpecs": Json(features),
+                "systemArchitecture": Json(architecture),
+                "databaseDesign": Json(database),
+                "apiDesign": Json(api_security),
+                "security": Json(api_security),
             },
         },
     )

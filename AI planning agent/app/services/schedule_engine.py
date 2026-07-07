@@ -216,8 +216,13 @@ async def _assign_sprints(
             effort = task.effortHours or task.estimatedHours or 4
             all_sprint_tasks.append((effort, task))
 
-    # Sort by order
-    all_sprint_tasks.sort(key=lambda x: x[1].order if hasattr(x[1], "order") else 0)
+    # Sort by milestone number first, then order
+    import re
+    def get_m_num(title: str) -> int:
+        match = re.search(r'Milestone\s*(\d+)', title, re.IGNORECASE)
+        return int(match.group(1)) if match else 999
+
+    all_sprint_tasks.sort(key=lambda x: (get_m_num(x[1].title), x[1].order if hasattr(x[1], "order") else 0))
 
     task_deps: dict[str, list[str]] = {}
     for _, task in all_sprint_tasks:
@@ -357,6 +362,13 @@ def _schedule_tasks(
     if not tasks:
         return []
 
+    import re
+    def get_m_num(title: str) -> int:
+        match = re.search(r'Milestone\s*(\d+)', title, re.IGNORECASE)
+        return int(match.group(1)) if match else 999
+
+    tasks = sorted(tasks, key=lambda t: get_m_num(t.title))
+
     task_deps: dict[str, list[str]] = {}
     for t in tasks:
         deps: list[str] = []
@@ -437,8 +449,6 @@ def _schedule_tasks(
             daily_allocation[check_date.date()] = daily_allocation.get(check_date.date(), 0) + 1
 
         task_end_date = task_start_date + timedelta(days=duration)
-        if task_end_date > project_start + timedelta(days=total_days):
-            task_end_date = project_start + timedelta(days=total_days)
 
         scheduled_starts[tid] = task_start_date
         scheduled_ends[tid] = task_end_date
