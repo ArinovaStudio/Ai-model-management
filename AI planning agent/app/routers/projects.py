@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.db.prisma import db
+from app.db.prisma import db, clear_project_cache
 from app.models.schemas import (
     ErrorResponse,
     ProjectCreate,
@@ -258,6 +258,7 @@ async def update_projectInfo(
             else:
                 update_data["project_id"] = project_id
                 await db.projectinfo.create(data=update_data)
+            clear_project_cache(project_id)
 
         project = await db.project.find_unique(
             where={"id": project_id},
@@ -300,6 +301,7 @@ async def delete_project(project_id: str) -> None:
             )
 
         await db.project.delete(where={"id": project_id})
+        clear_project_cache(project_id)
         logger.info("Deleted project %s", project_id)
 
     except HTTPException:

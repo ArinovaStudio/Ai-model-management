@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 from datetime import date
 from typing import Any, Optional
 
@@ -273,6 +274,7 @@ async def perform_gap_analysis(
 
     async def store(section: str, items: list[dict], report_type: str) -> list[Any]:
         records: list[Any] = []
+        creation_calls = []
         for item in items:
             title = (item.get("title") or "").strip()
             desc = (item.get("description") or "").strip()
@@ -294,27 +296,32 @@ async def perform_gap_analysis(
             else:
                 item_type = item.get("type", "assumption")
 
-            record = await db.riskblockage.create(
-                data={
-                    "projectId": project_id,
-                    "clientId": "system",
-                    "riskTitle": title,
-                    "type": item_type,
-                    "category": cat,
-                    "title": title,
-                    "description": desc,
-                    "severity": item.get("severity", "medium"),
-                    "status": "open",
-                    "sourceFeatureId": linked_feature.id if linked_feature else None,
-                    "reportType": report_type,
-                    "metadata": json.dumps({
-                        "source": source,
-                        "llm_generated": has_llm,
-                        "related_feature": feat_title,
-                    }),
-                }
-            )
-            records.append(record)
+            async def create_rb(t=title, d=desc, i_type=item_type, c=cat, lf=linked_feature, ft=feat_title):
+                rec = await db.riskblockage.create(
+                    data={
+                        "projectId": project_id,
+                        "clientId": "system",
+                        "riskTitle": t,
+                        "type": i_type,
+                        "category": c,
+                        "title": t,
+                        "description": d,
+                        "severity": item.get("severity", "medium"),
+                        "status": "open",
+                        "sourceFeatureId": lf.id if lf else None,
+                        "reportType": report_type,
+                        "metadata": json.dumps({
+                            "source": source,
+                            "llm_generated": has_llm,
+                            "related_feature": ft,
+                        }),
+                    }
+                )
+                records.append(rec)
+            creation_calls.append(create_rb())
+
+        if creation_calls:
+            await asyncio.gather(*creation_calls)
         return records
 
     stored_assumptions = await store("assumptions", ollama_assumptions, "assumption")

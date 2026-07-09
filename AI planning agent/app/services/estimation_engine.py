@@ -1,9 +1,10 @@
 import json
 import logging
 import re
+import asyncio
 from typing import Any, Optional
 
-from app.db.prisma import db
+from app.db.prisma import db, get_cached_project, set_cached_project, clear_project_cache
 
 logger = logging.getLogger(__name__)
 
@@ -92,12 +93,24 @@ async def run_estimation(
     reindex: bool = False,
     productive_hours_per_day: float = 6.0,
 ) -> dict[str, Any]:
-    project = await db.project.find_unique(
-        where={"id": project_id},
-        include={
-            "groupingTasks": {"include": {"tasks": True}},
-        },
-    )
+    if reindex:
+        clear_project_cache(project_id)
+
+    project = get_cached_project(project_id)
+    if not project or not getattr(project, "groupingTasks", None):
+        project = await db.project.find_unique(
+            where={"id": project_id},
+            include={
+                "featureRequests": True,
+                "projectInfo": True,
+                "technologies": True,
+                "projectIntelligence": True,
+                "groupingTasks": {"include": {"tasks": True}},
+                "resourceAllocations": True,
+            },
+        )
+        if project:
+            set_cached_project(project_id, project)
 
     if not project:
         raise ValueError(f"Project {project_id} not found")
@@ -108,6 +121,8 @@ async def run_estimation(
         return {"groups": [], "summary": {}}
 
     all_group_data: list[dict[str, Any]] = []
+
+    db_updates = []
 
     for group in groups:
         tasks = getattr(group, "tasks", None) or []
@@ -129,14 +144,17 @@ async def run_estimation(
             )
             effort, duration = _compute_effort(estimated_hours, complexity, productive_hours_per_day)
 
-            await db.task.update(
-                where={"id": task.id},
-                data={
-                    "complexityScore": complexity,
-                    "effortHours": effort,
-                    "durationDays": duration,
-                },
-            )
+            # Stage the task update
+            async def update_task_data(t_id=task.id, comp=complexity, eff=effort, dur=duration):
+                await db.task.update(
+                    where={"id": t_id},
+                    data={
+                        "complexityScore": comp,
+                        "effortHours": eff,
+                        "durationDays": dur,
+                    },
+                )
+            db_updates.append(update_task_data())
 
             group_task_data.append({
                 "task_id": task.id,
@@ -152,14 +170,17 @@ async def run_estimation(
             if group_task_data else 0.0
         )
 
-        await db.groupingtask.update(
-            where={"id": group.id},
-            data={
-                "totalEffortHours": round(total_effort, 2),
-                "totalDurationDays": round(total_duration, 2),
-                "avgComplexityScore": round(avg_complexity, 2),
-            },
-        )
+        # Stage the grouping task update
+        async def update_group_data(g_id=group.id, eff_h=total_effort, dur_d=total_duration, comp_s=avg_complexity):
+            await db.groupingtask.update(
+                where={"id": g_id},
+                data={
+                    "totalEffortHours": round(eff_h, 2),
+                    "totalDurationDays": round(dur_d, 2),
+                    "avgComplexityScore": round(comp_s, 2),
+                },
+            )
+        db_updates.append(update_group_data())
 
         all_group_data.append({
             "group_id": group.id,
@@ -170,6 +191,10 @@ async def run_estimation(
             "task_count": len(group_task_data),
             "tasks": group_task_data,
         })
+
+    # Execute all database writes concurrently
+    if db_updates:
+        await asyncio.gather(*db_updates)
 
     total_effort = sum(g["total_effort_hours"] for g in all_group_data)
     total_duration = sum(g["total_duration_days"] for g in all_group_data)

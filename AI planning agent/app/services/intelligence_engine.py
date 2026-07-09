@@ -1,7 +1,8 @@
 import json
 import logging
 
-from app.db.prisma import db
+import asyncio
+from app.db.prisma import db, get_cached_project, set_cached_project
 from prisma import Json
 from app.services.ollama_service import (
     API_AND_SECURITY_PROMPT,
@@ -16,14 +17,23 @@ logger = logging.getLogger(__name__)
 
 
 async def generate_project_intelligence(project_id: str) -> dict | None:
-    project = await db.project.find_unique(
-        where={"id": project_id},
-        include={
-            "projectInfo": True,
-            "planDocs": True,
-            "docs": True,
-        },
-    )
+    project = get_cached_project(project_id)
+    if not project or not getattr(project, "planDocs", None):
+        project = await db.project.find_unique(
+            where={"id": project_id},
+            include={
+                "featureRequests": True,
+                "projectInfo": True,
+                "technologies": True,
+                "projectIntelligence": True,
+                "groupingTasks": {"include": {"tasks": True}},
+                "resourceAllocations": True,
+                "planDocs": True,
+                "docs": True,
+            },
+        )
+        if project:
+            set_cached_project(project_id, project)
 
     if not project:
         logger.warning("Project %s not found", project_id)
@@ -65,9 +75,13 @@ async def generate_project_intelligence(project_id: str) -> dict | None:
     features = await ollama_service.generate_intelligence_layer(FEATURE_SPEC_PROMPT, context_2, temperature=0.3)
 
     context_3 = context_2 + "\n" + json.dumps(features)
-    architecture = await ollama_service.generate_intelligence_layer(SYSTEM_ARCHITECTURE_PROMPT, context_3, temperature=0.4)
-    database = await ollama_service.generate_intelligence_layer(DATABASE_DESIGN_PROMPT, context_3)
-    api_security = await ollama_service.generate_intelligence_layer(API_AND_SECURITY_PROMPT, context_3)
+    
+    # Run the three independent architecture/security layers in parallel
+    architecture, database, api_security = await asyncio.gather(
+        ollama_service.generate_intelligence_layer(SYSTEM_ARCHITECTURE_PROMPT, context_3, temperature=0.4),
+        ollama_service.generate_intelligence_layer(DATABASE_DESIGN_PROMPT, context_3),
+        ollama_service.generate_intelligence_layer(API_AND_SECURITY_PROMPT, context_3)
+    )
 
     record = await db.projectintelligence.upsert(
         where={"projectId": project_id},

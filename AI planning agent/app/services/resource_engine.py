@@ -2,10 +2,12 @@ import json
 import logging
 import math
 import re
+import asyncio
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from app.db.prisma import db
+from app.db.prisma import db, get_cached_project, set_cached_project, clear_project_cache
 
 logger = logging.getLogger(__name__)
 
@@ -92,19 +94,28 @@ async def run_resource_planning(
     project_id: str,
     reindex: bool = False,
 ) -> dict[str, Any]:
-    project = await db.project.find_unique(
-        where={"id": project_id},
-        include={
-            "groupingTasks": {"include": {"tasks": True}},
-            "projectInfo": True,
-        },
-    )
+    if reindex:
+        clear_project_cache(project_id)
+        await db.resourceallocation.delete_many(where={"projectId": project_id})
+
+    project = get_cached_project(project_id)
+    if not project or not getattr(project, "groupingTasks", None):
+        project = await db.project.find_unique(
+            where={"id": project_id},
+            include={
+                "featureRequests": True,
+                "projectInfo": True,
+                "technologies": True,
+                "projectIntelligence": True,
+                "groupingTasks": {"include": {"tasks": True}},
+                "resourceAllocations": True,
+            },
+        )
+        if project:
+            set_cached_project(project_id, project)
 
     if not project:
         raise ValueError(f"Project {project_id} not found")
-
-    if reindex:
-        await db.resourceallocation.delete_many(where={"projectId": project_id})
 
     groups = project.groupingTasks or []
     tasks: list[Any] = []
@@ -157,7 +168,8 @@ async def run_resource_planning(
     working_days = total_duration_days * (5.0 / 7.0)
     available_per_person = HOURS_PER_PERSON_PER_DAY * working_days
 
-    stored_allocations: list[Any] = []
+    allocation_records = []
+
     for role in ROLES:
         hours = round(role_hours.get(role, 0), 2)
         if hours <= 0:
@@ -168,36 +180,43 @@ async def run_resource_planning(
         required = max(MIN_TEAM_SIZE, min(MAX_TEAM_SIZE, math.ceil(raw_count)))
         workload_pct = round((hours / total_effort * 100) if total_effort > 0 else 0, 1)
 
-        record = await db.resourceallocation.create(
-            data={
-                "projectId": project_id,
-                "role": role,
-                "requiredCount": required,
-                "allocatedHours": hours,
-                "workloadPercentage": workload_pct,
-                "recommendedCount": recommended,
-                "metadata": json.dumps({
-                    "total_duration_days": round(total_duration_days, 1),
-                    "available_hours_per_person": round(available_per_person, 1),
-                }),
-            },
-        )
-        stored_allocations.append(record)
+        alloc_id = str(uuid.uuid4())
+        rec = {
+            "id": alloc_id,
+            "projectId": project_id,
+            "role": role,
+            "requiredCount": required,
+            "allocatedHours": hours,
+            "workloadPercentage": workload_pct,
+            "recommendedCount": recommended,
+            "metadata": json.dumps({
+                "total_duration_days": round(total_duration_days, 1),
+                "available_hours_per_person": round(available_per_person, 1),
+            }),
+        }
+        allocation_records.append(rec)
 
-    if not stored_allocations:
+    if not allocation_records:
         default_role = ROLES[0]
-        record = await db.resourceallocation.create(
-            data={
-                "projectId": project_id,
-                "role": default_role,
-                "requiredCount": 1,
-                "allocatedHours": 0,
-                "workloadPercentage": 100,
-                "recommendedCount": 1,
-                "metadata": json.dumps({"note": "default allocation - no tasks with effort data"}),
-            },
-        )
-        stored_allocations.append(record)
+        alloc_id = str(uuid.uuid4())
+        rec = {
+            "id": alloc_id,
+            "projectId": project_id,
+            "role": default_role,
+            "requiredCount": 1,
+            "allocatedHours": 0.0,
+            "workloadPercentage": 100.0,
+            "recommendedCount": 1.0,
+            "metadata": json.dumps({"note": "default allocation - no tasks with effort data"}),
+        }
+        allocation_records.append(rec)
+
+    if allocation_records:
+        await db.resourceallocation.create_many(data=allocation_records)
+
+    stored_allocations = await db.resourceallocation.find_many(
+        where={"projectId": project_id}
+    )
 
     total_team_size = sum(a.requiredCount for a in stored_allocations)
 

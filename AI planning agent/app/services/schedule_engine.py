@@ -1,11 +1,12 @@
 import json
 import logging
 import math
+import asyncio
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from app.db.prisma import db
+from app.db.prisma import db, get_cached_project, set_cached_project, clear_project_cache
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +20,24 @@ async def generate_schedule(
     sprint_duration_days: int = 14,
     productive_hours_per_day: float = 6.0,
 ) -> dict[str, Any]:
-    project = await db.project.find_unique(
-        where={"id": project_id},
-        include={
-            "projectInfo": True,
-            "groupingTasks": {"include": {"tasks": True}},
-            "resourceAllocations": True,
-        },
-    )
+    if reindex:
+        clear_project_cache(project_id)
+
+    project = get_cached_project(project_id)
+    if not project or not getattr(project, "groupingTasks", None):
+        project = await db.project.find_unique(
+            where={"id": project_id},
+            include={
+                "featureRequests": True,
+                "projectInfo": True,
+                "technologies": True,
+                "projectIntelligence": True,
+                "groupingTasks": {"include": {"tasks": True}},
+                "resourceAllocations": True,
+            },
+        )
+        if project:
+            set_cached_project(project_id, project)
 
     if not project:
         raise ValueError(f"Project {project_id} not found")
@@ -84,14 +95,13 @@ async def generate_schedule(
     task_schedules = _schedule_tasks(all_tasks, start, total_available_days, warnings, productive_hours_per_day, required_headcount)
 
     # --- Persist task schedules ---
-    for ts in task_schedules:
+    async def update_task_sched(ts):
         s_start = ts["scheduled_start"]
         s_end = ts["scheduled_end"]
         if s_start and s_start.tzinfo is None:
             s_start = s_start.replace(tzinfo=timezone.utc)
         if s_end and s_end.tzinfo is None:
             s_end = s_end.replace(tzinfo=timezone.utc)
-            
         await db.task.update(
             where={"id": ts["task_id"]},
             data={
@@ -99,6 +109,7 @@ async def generate_schedule(
                 "scheduledEnd": s_end,
             },
         )
+    await asyncio.gather(*(update_task_sched(ts) for ts in task_schedules))
 
     # --- Persist to project summary ---
     project_summary = {}
@@ -146,20 +157,14 @@ async def generate_schedule(
 
 async def _clear_schedule(project_id: str) -> None:
     await db.milestone.delete_many(where={"projectId": project_id})
-    groups = await db.groupingtask.find_many(
+    await db.groupingtask.update_many(
         where={"projectId": project_id},
-        include={"tasks": True},
+        data={"sprintNumber": None, "sprintStart": None, "sprintEnd": None},
     )
-    for g in groups:
-        await db.groupingtask.update(
-            where={"id": g.id},
-            data={"sprintNumber": None, "sprintStart": None, "sprintEnd": None},
-        )
-        for t in (g.tasks or []):
-            await db.task.update(
-                where={"id": t.id},
-                data={"scheduledStart": None, "scheduledEnd": None},
-            )
+    await db.task.update_many(
+        where={"projectId": project_id},
+        data={"scheduledStart": None, "scheduledEnd": None},
+    )
 
 
 async def _generate_milestones(
@@ -176,27 +181,31 @@ async def _generate_milestones(
         (1.00, "Project Delivery"),
     ]
 
-    records: list[Any] = []
+    import uuid
+    records_data = []
     for pct, title in phases:
         offset = timedelta(seconds=int(total_secs * pct))
         due = start + offset
         phase_start = start + timedelta(seconds=int(total_secs * (pct - 0.15))) if pct > 0.15 else start
 
-        record = await db.milestone.create(
-            data={
-                "projectId": project_id,
-                "title": title,
-                "description": f"Milestone: {title}",
-                "startDate": phase_start,
-                "endDate": due,
-                "dueDate": due,
-                "status": "PENDING",
-                "createdBy": "system",
-            },
-        )
-        records.append(record)
+        records_data.append({
+            "id": str(uuid.uuid4()),
+            "projectId": project_id,
+            "title": title,
+            "description": f"Milestone: {title}",
+            "startDate": phase_start,
+            "endDate": due,
+            "dueDate": due,
+            "status": "PENDING",
+            "createdBy": "system",
+        })
 
-    return records
+    if records_data:
+        await db.milestone.create_many(data=records_data)
+
+    return await db.milestone.find_many(
+        where={"projectId": project_id}
+    )
 
 
 async def _assign_sprints(
@@ -308,6 +317,7 @@ async def _assign_sprints(
     # Update GroupingTask with sprint metadata
     sprints_info: list[dict[str, Any]] = []
     active_groups: dict[str, dict[str, Any]] = {}
+    group_update_calls = []
 
     for s_idx in range(num_sprints):
         if not sprint_tasks[s_idx]:
@@ -324,14 +334,19 @@ async def _assign_sprints(
             g = next((g for g in groups if g.id == gid), None)
             if g:
                 sprint_num = s_idx + 1
-                await db.groupingtask.update(
-                    where={"id": gid},
-                    data={
-                        "sprintNumber": sprint_num,
-                        "sprintStart": s_start,
-                        "sprintEnd": s_end,
-                    },
-                )
+                
+                # Define async closure to capture parameters correctly
+                async def update_group_sprint(g_id=gid, s_num=sprint_num, start_d=s_start, end_d=s_end):
+                    await db.groupingtask.update(
+                        where={"id": g_id},
+                        data={
+                            "sprintNumber": s_num,
+                            "sprintStart": start_d,
+                            "sprintEnd": end_d,
+                        },
+                    )
+                group_update_calls.append(update_group_sprint())
+
                 key = f"{gid}_{sprint_num}"
                 if key not in active_groups:
                     active_groups[key] = {
@@ -345,6 +360,9 @@ async def _assign_sprints(
                         ),
                         "task_count": len(gtasks),
                     }
+                    
+    if group_update_calls:
+        await asyncio.gather(*group_update_calls)
 
     sprints_info = sorted(active_groups.values(), key=lambda x: (x["sprint_number"], x["group_name"]))
 
