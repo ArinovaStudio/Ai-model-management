@@ -62,23 +62,57 @@ async def _ensure_doc_embeddings(project_id: str) -> None:
     docs = await db.doc.find_many(where={"projectId": project_id})
 
     for record_list, table in [(plan_docs, db.plandoc), (docs, db.doc)]:
-        texts: list[str] = []
-        records: list[Any] = []
-        for r in record_list:
-            if not r.embedding:
-                texts.append(r.content)
-                records.append(r)
+        for record in record_list:
+            chunks_exist = False
+            if record.metadata:
+                try:
+                    meta = json.loads(record.metadata)
+                    if isinstance(meta, dict) and "chunks" in meta:
+                        chunks_exist = True
+                except Exception:
+                    pass
 
-        if not texts:
-            continue
+            if record.embedding and chunks_exist:
+                continue
 
-        embeddings = await embedding_service.generate_embeddings_batch(texts)
-        for record, emb in zip(records, embeddings):
-            if emb is not None:
-                await table.update(
-                    where={"id": record.id},
-                    data={"embedding": embedding_service.serialize_embedding(emb)},
-                )
+            text_chunks = embedding_service.chunk_text(record.content)
+            if not text_chunks:
+                continue
+
+            texts_to_embed = [record.content] + text_chunks
+            embeddings = await embedding_service.generate_embeddings_batch(texts_to_embed)
+
+            full_doc_emb = embeddings[0]
+            chunk_embs = embeddings[1:]
+
+            chunk_data = []
+            for text, emb in zip(text_chunks, chunk_embs):
+                if emb is not None:
+                    chunk_data.append({
+                        "text": text,
+                        "embedding": emb
+                    })
+
+            existing_meta = {}
+            if record.metadata:
+                try:
+                    existing_meta = json.loads(record.metadata)
+                    if not isinstance(existing_meta, dict):
+                        existing_meta = {}
+                except Exception:
+                    pass
+
+            existing_meta["chunks"] = chunk_data
+            
+            serialized_emb = embedding_service.serialize_embedding(full_doc_emb) if full_doc_emb is not None else record.embedding
+            
+            await table.update(
+                where={"id": record.id},
+                data={
+                    "embedding": serialized_emb,
+                    "metadata": json.dumps(existing_meta),
+                },
+            )
 
 
 async def analyze_project(

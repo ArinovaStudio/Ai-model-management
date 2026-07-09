@@ -404,6 +404,23 @@ class OllamaService:
             logger.warning("Failed to parse Ollama response as JSON: %.200s", raw)
             return []
 
+    async def chat_rag(self, system_prompt: str, user_query: str) -> str:
+        if not await self.is_available():
+            return "Ollama is currently offline/unavailable."
+        try:
+            response = await self.client.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_query},
+                ],
+                options={"temperature": 0.2, "num_predict": 1024},
+            )
+            return response["message"]["content"].strip()
+        except Exception as exc:
+            logger.error("Ollama chat RAG failed: %s", exc)
+            return "Failed to generate answer from context."
+
     def _default_clarified(self, original: dict, clarification: str) -> dict:
         return {
             "title": original.get("title", ""),

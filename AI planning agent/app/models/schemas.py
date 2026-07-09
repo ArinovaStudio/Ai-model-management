@@ -160,6 +160,7 @@ class SemanticSearchResult(BaseModel):
 class SemanticSearchResponse(BaseModel):
     query: str
     results: list[SemanticSearchResult]
+    answer: Optional[str] = None
 
 
 class TechnicianClarificationInput(BaseModel):

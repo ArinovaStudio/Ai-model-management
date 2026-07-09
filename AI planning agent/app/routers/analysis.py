@@ -27,6 +27,7 @@ from app.services.analysis_engine import (
     clarify_requirement,
 )
 from app.services.embedding import embedding_service
+from app.services.ollama_service import ollama_service
 from app.services.gap_engine import (
     ProjectNotFoundError as GapProjectNotFoundError,
     perform_gap_analysis,
@@ -316,8 +317,21 @@ async def semantic_search_endpoint(
     doc_type: str = Query(default=None),
 ) -> SemanticSearchResponse:
     try:
-        existing = await db.project.find_unique(where={"id": project_id})
-        if not existing:
+        from app.db.prisma import get_cached_project, set_cached_project
+        project = get_cached_project(project_id)
+        if not project:
+            project = await db.project.find_unique(
+                where={"id": project_id},
+                include={
+                    "projectInfo": True,
+                    "technologies": True,
+                    "projectIntelligence": True,
+                }
+            )
+            if project:
+                set_cached_project(project_id, project)
+
+        if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Project {project_id} not found",
@@ -330,9 +344,84 @@ async def semantic_search_endpoint(
             doc_type=doc_type or None,
         )
 
+        # Build tech stack details
+        tech_list = []
+        if project.technologies:
+            for t in project.technologies:
+                tech_list.append(f"- {t.name} ({t.category or 'general'})")
+        tech_stack_str = "\n".join(tech_list) if tech_list else "No explicit tech stack detected."
+
+        # Build architecture details
+        arch_details = "No system architecture defined yet."
+        db_details = "No database ERD defined yet."
+        if project.projectIntelligence:
+            intel = project.projectIntelligence
+            if intel.systemArchitecture:
+                try:
+                    system_arch = json.loads(str(intel.systemArchitecture)) if isinstance(intel.systemArchitecture, str) else intel.systemArchitecture
+                    arch_details = system_arch.get("highLevel", "No high level description.")
+                except Exception:
+                    arch_details = str(intel.systemArchitecture)
+            if intel.databaseDesign:
+                try:
+                    db_design = json.loads(str(intel.databaseDesign)) if isinstance(intel.databaseDesign, str) else intel.databaseDesign
+                    db_details = db_design.get("normalization", "No DB normalization info.")
+                except Exception:
+                    db_details = str(intel.databaseDesign)
+
+        # Build project basic context
+        proj_info_str = "No description provided."
+        if project.projectInfo:
+            proj_info_str = f"Description: {project.projectInfo.description or ''}\nScope: {project.projectInfo.scope or ''}"
+
+        # Combine all structural context
+        structural_context = (
+            f"=== Project Configuration ===\n"
+            f"Project Name: {project.name}\n"
+            f"{proj_info_str}\n\n"
+            f"=== Active Technology Stack ===\n"
+            f"{tech_stack_str}\n\n"
+            f"=== System Architecture Design ===\n"
+            f"{arch_details}\n\n"
+            f"=== Database Normalization & ERD Schema ===\n"
+            f"{db_details}\n"
+        )
+
+        context_str = ""
+        if results:
+            context_str = "\n\n".join(
+                f"Document: {r['title']}\nSnippet: {r['content_snippet']}"
+                for r in results
+            )
+        else:
+            context_str = "No specific document context matches found."
+
+        rag_system_prompt = (
+            "You are an Expert Project Architect and Brainstorming Assistant.\n"
+            "Your goal is to answer the user's question with high technical accuracy. You are provided with two layers of context:\n"
+            "1) Document Context: Excerpts from project documents (if available).\n"
+            "2) Project Blueprint: The generated tech stack, system architecture, database design, and project scope.\n\n"
+            "CRITICAL DIRECTIVES:\n"
+            "- If the user's question asks about something NOT explicitly mentioned in the documents (like deployment stack, libraries, or security mechanisms), "
+            "you MUST use the Project Blueprint as your grounding base, and project/recommend solutions using your general engineering expertise.\n"
+            "- Ensure your recommendations are 100% compatible with the Active Technology Stack and System Architecture design.\n"
+            "- Do NOT invent client constraints, but feel free to recommend best-practice technical implementation details.\n"
+            "- Keep the response technical, direct, and conversational. Do not reference prompt structures or repeat the prompt back to the user."
+        )
+
+        answer = await ollama_service.chat_rag(
+            system_prompt=rag_system_prompt,
+            user_query=(
+                f"=== Project Blueprint ===\n{structural_context}\n\n"
+                f"=== Document Context ===\n{context_str}\n\n"
+                f"Question: {query}"
+            )
+        )
+
         return SemanticSearchResponse(
             query=query,
             results=[SemanticSearchResult(**r) for r in results],
+            answer=answer,
         )
 
     except HTTPException:

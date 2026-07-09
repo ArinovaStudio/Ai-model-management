@@ -778,14 +778,30 @@ const workspace = {
         try {
             const res = await window.api.searchContext(this.projectId, query);
             
-            let aiText = "I found some context in your documents:<br><br>";
-            res.results.forEach(r => {
-                aiText += `<div style="padding: 0.5rem; background: var(--bg-card); border-radius: 4px; margin-bottom: 0.5rem; font-size: 0.8rem;">
-                    <strong>${r.title}</strong> (Score: ${r.similarity_score})<br>
-                    "${r.content_snippet}"
-                </div>`;
-            });
-            if (res.results.length === 0) aiText = "I couldn't find any relevant context for that.";
+            let aiText = "";
+            if (res.answer) {
+                aiText += `<div style="margin-bottom: 0.75rem; line-height: 1.4;">${res.answer.replace(/\n/g, '<br>')}</div>`;
+            }
+
+            if (res.results && res.results.length > 0) {
+                const randomId = 'sources_' + Math.random().toString(36).substr(2, 9);
+                aiText += `<details style="margin-top: 0.5rem; font-size: 0.8rem; border-top: 1px dashed var(--color-sedate-gray-light); padding-top: 0.5rem;">
+                    <summary style="cursor: pointer; color: var(--color-sky-blue); font-weight: bold;">View Sources (${res.results.length})</summary>
+                    <div id="${randomId}" style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;">`;
+                
+                res.results.forEach(r => {
+                    aiText += `<div style="padding: 0.5rem; background: var(--bg-card); border: 1px solid var(--color-sedate-gray-light); border-radius: 4px;">
+                        <strong>${r.title}</strong> <span style="font-size: 0.75rem; color: var(--text-muted); float: right;">(Score: ${r.similarity_score})</span><br>
+                        <span style="font-style: italic; color: var(--text-muted);">"${r.content_snippet}"</span>
+                    </div>`;
+                });
+                
+                aiText += `</div></details>`;
+            } else {
+                if (!res.answer) {
+                    aiText = "I couldn't find any relevant context for that.";
+                }
+            }
 
             chatBox.innerHTML += `<div class="msg msg-ai">${aiText}</div>`;
         } catch (error) {
