@@ -136,6 +136,7 @@
                     <div class="tab" onclick="workspace.switchTab('risks')">Risks & Gaps</div>
                     <div class="tab" onclick="workspace.switchTab('strategy')">Product Strategy</div>
                     <div class="tab" onclick="workspace.switchTab('architecture')">Architecture & Design</div>
+                    <div class="tab" onclick="workspace.switchTab('documentation')">Project Documentation</div>
                 </div>
 
                 <!-- WBS Tab -->
@@ -183,6 +184,22 @@
                 <!-- Architecture & Design Tab -->
                 <div class="tab-pane" id="tab-architecture">
                     <div id="architecture-container"></div>
+                </div>
+
+                <!-- Project Documentation Tab -->
+                <div class="tab-pane" id="tab-documentation">
+                    <div style="display: flex; gap: 2rem;">
+                        <div style="width: 250px; background: var(--bg-card); padding: 1rem; border-radius: var(--radius-lg); border: 1px solid var(--color-sedate-gray-light); height: fit-content; display: flex; flex-direction: column; gap: 0.5rem;" id="doc-nav">
+                            <div class="doc-nav-item active" onclick="workspace.switchDoc('Core Technical Blueprint')" style="padding: 0.5rem 1rem; cursor: pointer; border-radius: var(--radius-md); font-weight: 500;" id="nav-blueprint">Core Technical Blueprint</div>
+                            <div class="doc-nav-item" onclick="workspace.switchDoc('Project Constraints')" style="padding: 0.5rem 1rem; cursor: pointer; border-radius: var(--radius-md); font-weight: 500;" id="nav-constraints">Project Constraints</div>
+                            <div class="doc-nav-item" onclick="workspace.switchDoc('Success Metrics Framework')" style="padding: 0.5rem 1rem; cursor: pointer; border-radius: var(--radius-md); font-weight: 500;" id="nav-metrics">Success Metrics Framework</div>
+                            <div class="doc-nav-item" onclick="workspace.switchDoc('Assumptions Register')" style="padding: 0.5rem 1rem; cursor: pointer; border-radius: var(--radius-md); font-weight: 500;" id="nav-assumptions">Assumptions Register</div>
+                            <div class="doc-nav-item" onclick="workspace.switchDoc('Decision Brief')" style="padding: 0.5rem 1rem; cursor: pointer; border-radius: var(--radius-md); font-weight: 500;" id="nav-decision">Decision Brief</div>
+                        </div>
+                        <div id="doc-display-content" class="card markdown-body" style="flex: 1; padding: 2rem; min-height: 500px; overflow-y: auto; background: var(--bg-card);">
+                            <p style="color: var(--text-muted);">Select a document from the left to view.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </main>

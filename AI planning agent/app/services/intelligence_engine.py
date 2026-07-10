@@ -108,4 +108,63 @@ async def generate_project_intelligence(project_id: str) -> dict | None:
         },
     )
 
+    # Generate the 5 rich text documents in parallel
+    from app.services.ollama_service import (
+        CORE_TECHNICAL_BLUEPRINT_PROMPT,
+        PROJECT_CONSTRAINTS_PROMPT,
+        SUCCESS_METRICS_PROMPT,
+        ASSUMPTIONS_REGISTER_PROMPT,
+        DECISION_BRIEF_PROMPT
+    )
+
+    context_docs = context_3 + "\n" + json.dumps(architecture) + "\n" + json.dumps(database)
+
+    blueprint, constraints, metrics, assumptions, decision = await asyncio.gather(
+        ollama_service.generate_document_style(CORE_TECHNICAL_BLUEPRINT_PROMPT, context_docs),
+        ollama_service.generate_document_style(PROJECT_CONSTRAINTS_PROMPT, context_docs),
+        ollama_service.generate_document_style(SUCCESS_METRICS_PROMPT, context_docs),
+        ollama_service.generate_document_style(ASSUMPTIONS_REGISTER_PROMPT, context_docs),
+        ollama_service.generate_document_style(DECISION_BRIEF_PROMPT, context_docs)
+    )
+
+    # Upsert each document in the PlanDoc table
+    doc_titles = [
+        "Core Technical Blueprint",
+        "Project Constraints",
+        "Success Metrics Framework",
+        "Assumptions Register",
+        "Decision Brief"
+    ]
+    doc_contents = [blueprint, constraints, metrics, assumptions, decision]
+
+    for title, content in zip(doc_titles, doc_contents):
+        existing_doc = await db.plandoc.find_first(
+            where={"projectId": project_id, "title": title}
+        )
+        if existing_doc:
+            await db.plandoc.update(
+                where={"id": existing_doc.id},
+                data={"content": content}
+            )
+        else:
+            await db.plandoc.create(
+                data={
+                    "projectId": project_id,
+                    "title": title,
+                    "content": content
+                }
+            )
+
+    # Trigger document indexing in the background so the user gets instant UI loading
+    def run_bg_indexing(proj_id: str):
+        async def _bg_task():
+            try:
+                from app.services.analysis_engine import _ensure_doc_embeddings
+                await _ensure_doc_embeddings(proj_id)
+            except Exception as e:
+                logger.warning("Background doc embedding indexing failed: %s", e)
+        asyncio.create_task(_bg_task())
+
+    run_bg_indexing(project_id)
+
     return record

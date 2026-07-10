@@ -176,6 +176,12 @@ const api = {
         const res = await fetch(`${API_BASE_URL}/${id}/wbs/tasks`);
         if (!res.ok) throw new Error('Failed to get WBS tasks');
         return res.json();
+    },
+
+    async getPlanDocs(id) {
+        const res = await fetch(`${API_BASE_URL}/${id}/plan-docs`);
+        if (!res.ok) throw new Error('Failed to get plan docs');
+        return res.json();
     }
 };
 

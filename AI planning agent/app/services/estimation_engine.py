@@ -122,39 +122,14 @@ async def run_estimation(
 
     all_group_data: list[dict[str, Any]] = []
 
-    db_updates = []
-
     for group in groups:
         tasks = getattr(group, "tasks", None) or []
         group_task_data: list[dict[str, Any]] = []
 
         for task in tasks:
-            deps: list[str] = []
-            if task.dependencies:
-                try:
-                    deps = json.loads(task.dependencies)
-                except (json.JSONDecodeError, TypeError):
-                    deps = []
-
-            estimated_hours = task.estimatedHours or 4.0
-            complexity = _compute_task_complexity(
-                title=task.title,
-                description=task.description,
-                dependency_count=len(deps),
-            )
-            effort, duration = _compute_effort(estimated_hours, complexity, productive_hours_per_day)
-
-            # Stage the task update
-            async def update_task_data(t_id=task.id, comp=complexity, eff=effort, dur=duration):
-                await db.task.update(
-                    where={"id": t_id},
-                    data={
-                        "complexityScore": comp,
-                        "effortHours": eff,
-                        "durationDays": dur,
-                    },
-                )
-            db_updates.append(update_task_data())
+            complexity = task.complexityScore if task.complexityScore is not None else 0.5
+            effort = task.effortHours if task.effortHours is not None else 4.0
+            duration = task.durationDays if task.durationDays is not None else 0.5
 
             group_task_data.append({
                 "task_id": task.id,
@@ -163,38 +138,22 @@ async def run_estimation(
                 "duration_days": duration,
             })
 
-        total_effort = sum(t["effort_hours"] for t in group_task_data)
-        total_duration = sum(t["duration_days"] for t in group_task_data)
-        avg_complexity = (
+        total_effort = group.totalEffortHours if group.totalEffortHours is not None else sum(t["effort_hours"] for t in group_task_data)
+        total_duration = group.totalDurationDays if group.totalDurationDays is not None else sum(t["duration_days"] for t in group_task_data)
+        avg_complexity = group.avgComplexityScore if group.avgComplexityScore is not None else (
             sum(t["complexity_score"] for t in group_task_data) / len(group_task_data)
             if group_task_data else 0.0
         )
 
-        # Stage the grouping task update
-        async def update_group_data(g_id=group.id, eff_h=total_effort, dur_d=total_duration, comp_s=avg_complexity):
-            await db.groupingtask.update(
-                where={"id": g_id},
-                data={
-                    "totalEffortHours": round(eff_h, 2),
-                    "totalDurationDays": round(dur_d, 2),
-                    "avgComplexityScore": round(comp_s, 2),
-                },
-            )
-        db_updates.append(update_group_data())
-
         all_group_data.append({
             "group_id": group.id,
             "group_name": group.name or "",
-            "total_effort_hours": total_effort,
-            "total_duration_days": total_duration,
-            "avg_complexity_score": avg_complexity,
+            "total_effort_hours": round(total_effort, 2),
+            "total_duration_days": round(total_duration, 2),
+            "avg_complexity_score": round(avg_complexity, 2),
             "task_count": len(group_task_data),
             "tasks": group_task_data,
         })
-
-    # Execute all database writes concurrently
-    if db_updates:
-        await asyncio.gather(*db_updates)
 
     total_effort = sum(g["total_effort_hours"] for g in all_group_data)
     total_duration = sum(g["total_duration_days"] for g in all_group_data)

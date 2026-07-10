@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from app.db.prisma import db, get_cached_project, set_cached_project, clear_project_cache
 from app.services.ollama_service import ollama_service
+from app.services.estimation_engine import _compute_task_complexity, _compute_effort
 
 logger = logging.getLogger(__name__)
 
@@ -112,20 +113,34 @@ async def generate_wbs(
         feature_keywords[f.id] = _extract_keywords(f"{f.title} {f.description or ''}")
 
     # --- PARALLEL WBS LLM EXTRACTION WORKERS ---
-    sem = asyncio.Semaphore(3)
+    sem = asyncio.Semaphore(4)
 
     async def get_feature_wbs(feature: Any) -> tuple[Any, Optional[dict[str, Any]], bool]:
         async with sem:
-            try:
-                trinity_xml = await ollama_service.generate_architecture_trinity(
-                    context=context,
-                    feature=f"{feature.title}: {feature.description}"
-                )
-                wbs_data = await ollama_service.generate_wbs_tasks(trinity_xml)
-                return feature, wbs_data, False
-            except Exception as e:
-                logger.error("Failed to generate WBS for feature %s: %s", feature.id, e)
-                return feature, None, True
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    trinity_xml = await ollama_service.generate_architecture_trinity(
+                        context=context,
+                        feature=f"{feature.title}: {feature.description}"
+                    )
+                    wbs_data = await ollama_service.generate_wbs_tasks(trinity_xml)
+                    if wbs_data and "milestones" in wbs_data and wbs_data["milestones"]:
+                        return feature, wbs_data, False
+                    
+                    logger.warning(
+                        "WBS structure invalid on attempt %d for feature %s, retrying...",
+                        attempt + 1, feature.id
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed WBS attempt %d for feature %s: %s",
+                        attempt + 1, feature.id, e
+                    )
+                await asyncio.sleep(1 * (attempt + 1))
+            
+            logger.error("All %d retries failed for feature %s", max_retries, feature.id)
+            return feature, None, True
 
     logger.info("Starting concurrent WBS LLM extraction for %d features...", len(features))
     wbs_results = await asyncio.gather(*(get_feature_wbs(f) for f in features))
@@ -139,29 +154,49 @@ async def generate_wbs(
         group_name = f"Feature: {feature.title}"
         group_id = str(uuid.uuid4())
         
-        group_records.append({
-            "id": group_id,
-            "name": group_name,
-            "projectId": project_id,
-            "description": feature.description or "No description provided.",
-            "order": group_order,
-            "featureIds": json.dumps([feature.id]),
-        })
-
         task_list = []
-        if wbs_data and "milestones" in wbs_data:
-            for m_idx, milestone in enumerate(wbs_data["milestones"]):
-                m_title = milestone.get("title", f"Milestone {m_idx+1}")
-                m_tasks = milestone.get("tasks", [])
-                for t_idx, t in enumerate(m_tasks):
-                    task_list.append({
-                        "title": f"[{m_title}] {t.get('title', 'Task')}",
-                        "raw_title": t.get("title", "Task"),
-                        "description": t.get("description", "No description"),
-                        "estimated_hours": float(t.get("estimated_hours", 4.0)),
-                        "depends_on": t.get("depends_on", []),
-                        "order": len(task_list) + 1
-                    })
+        if wbs_data:
+            milestones = []
+            if isinstance(wbs_data, dict):
+                if "milestones" in wbs_data:
+                    milestones = wbs_data["milestones"]
+                elif "milestone" in wbs_data:
+                    milestones = wbs_data["milestone"]
+                else:
+                    for val in wbs_data.values():
+                        if isinstance(val, list):
+                            milestones = val
+                            break
+            elif isinstance(wbs_data, list):
+                milestones = wbs_data
+
+            if isinstance(milestones, list):
+                for m_idx, milestone in enumerate(milestones):
+                    if isinstance(milestone, dict):
+                        m_title = milestone.get("title", f"Milestone {m_idx+1}")
+                        m_tasks = milestone.get("tasks") or milestone.get("task") or []
+                        if isinstance(m_tasks, list):
+                            for t in m_tasks:
+                                if isinstance(t, dict):
+                                    t_title = t.get("title", "Task")
+                                    t_desc = t.get("description", "No description")
+                                    t_hours = 4.0
+                                    try:
+                                        t_hours = float(t.get("estimated_hours") or t.get("hours") or 4.0)
+                                    except Exception:
+                                        pass
+                                    t_deps = t.get("depends_on") or t.get("dependencies") or []
+                                    if not isinstance(t_deps, list):
+                                        t_deps = []
+
+                                    task_list.append({
+                                        "title": f"[{m_title}] {t_title}",
+                                        "raw_title": t_title,
+                                        "description": t_desc,
+                                        "estimated_hours": t_hours,
+                                        "depends_on": t_deps,
+                                        "order": len(task_list) + 1
+                                    })
         
         is_fallback = False
         if not task_list:
@@ -172,12 +207,34 @@ async def generate_wbs(
         title_to_id = {}
         feature_task_records = []
         
+        feature_efforts = []
+        feature_durations = []
+        feature_complexities = []
+
         for template in task_list:
             global_task_index += 1
             task_id = str(uuid.uuid4())
             task_title = template['title']
             task_description = template.get('description', f"Task for {feature.title}")
             due = _compute_due_date(deadline, template["order"], len(task_list))
+
+            # Compute complexity and effort in-memory
+            deps_list = template.get("depends_on", [])
+            complexity = _compute_task_complexity(
+                title=task_title,
+                description=task_description,
+                dependency_count=len(deps_list),
+            )
+            estimated_hours = template.get("estimated_hours", 4.0)
+            effort, duration = _compute_effort(
+                estimated_hours,
+                complexity,
+                productive_hours_per_day
+            )
+
+            feature_efforts.append(effort)
+            feature_durations.append(duration)
+            feature_complexities.append(complexity)
 
             t_record = {
                 "id": task_id,
@@ -192,13 +249,32 @@ async def generate_wbs(
                 "featureRequestId": feature.id,
                 "groupId": group_id,
                 "order": template["order"],
-                "estimatedHours": template.get("estimated_hours", 4.0),
+                "estimatedHours": float(estimated_hours),
+                "complexityScore": float(complexity),
+                "effortHours": float(effort),
+                "durationDays": float(duration),
             }
             
             raw_t = template.get("raw_title", task_title).lower()
             title_to_id[raw_t] = task_id
-            feature_task_records.append((t_record, template.get("depends_on", [])))
+            feature_task_records.append((t_record, deps_list))
             task_records.append(t_record)
+
+        total_effort = sum(feature_efforts)
+        total_duration = sum(feature_durations)
+        avg_complexity = sum(feature_complexities) / len(feature_complexities) if feature_complexities else 0.0
+
+        group_records.append({
+            "id": group_id,
+            "name": group_name,
+            "projectId": project_id,
+            "description": feature.description or "No description provided.",
+            "order": group_order,
+            "featureIds": json.dumps([feature.id]),
+            "totalEffortHours": round(total_effort, 2),
+            "totalDurationDays": round(total_duration, 2),
+            "avgComplexityScore": round(avg_complexity, 2),
+        })
 
         group_tasks_meta.append({
             "group_id": group_id,

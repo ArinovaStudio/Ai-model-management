@@ -218,3 +218,67 @@ h1, h2, h3, h4 {
   .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* Document Navigation Sidebar Items */
+.doc-nav-item {
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+.doc-nav-item:hover {
+  background: var(--color-sedate-gray-light);
+  color: var(--text-main);
+}
+.doc-nav-item.active {
+  background: var(--color-beau-blue) !important;
+  color: var(--text-main) !important;
+  border-color: var(--color-beau-blue);
+}
+
+/* Markdown Rendering in Document Area */
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-sedate-gray-light);
+  padding-bottom: 0.25rem;
+}
+.markdown-body h1 { font-size: 1.4rem; color: var(--color-dusty-rose); }
+.markdown-body h2 { font-size: 1.25rem; }
+.markdown-body h3 { font-size: 1.1rem; }
+.markdown-body p {
+  margin-bottom: 1rem;
+  line-height: 1.6;
+  color: var(--text-main);
+}
+.markdown-body ul, .markdown-body ol {
+  margin-bottom: 1.5rem;
+  padding-left: 2rem;
+}
+.markdown-body li {
+  margin-bottom: 0.5rem;
+}
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+}
+.markdown-body th, .markdown-body td {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-sedate-gray-light);
+  text-align: left;
+}
+.markdown-body th {
+  background-color: var(--bg-main);
+  font-weight: 600;
+}
+.markdown-body pre {
+  background: var(--bg-main);
+  border: 1px solid var(--color-sedate-gray-light);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  overflow-x: auto;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.85rem;
+  margin-bottom: 1.5rem;
+}

@@ -222,6 +222,7 @@ const workspace = {
         if (tabName === 'risks') this.loadGapAnalysis();
         if (tabName === 'strategy') this.loadStrategy();
         if (tabName === 'architecture') this.loadArchitecture();
+        if (tabName === 'documentation') this.loadDocumentation();
     },
 
     async loadWBS() {
@@ -808,6 +809,123 @@ const workspace = {
             chatBox.innerHTML += `<div class="msg msg-ai" style="color: red;">Search failed.</div>`;
         }
         chatBox.scrollTop = chatBox.scrollHeight;
+    },
+
+    loadedDocs: {},
+
+    async loadDocumentation() {
+        const container = document.getElementById('doc-display-content');
+        container.innerHTML = '<p style="color: var(--text-muted);">Loading Project Documentation...</p>';
+        try {
+            const docs = await window.api.getPlanDocs(this.projectId);
+            this.loadedDocs = {};
+            docs.forEach(doc => {
+                this.loadedDocs[doc.title] = doc.content;
+            });
+
+            // Default to Core Technical Blueprint
+            this.switchDoc('Core Technical Blueprint');
+        } catch (e) {
+            console.error('Failed to load plan documents:', e);
+            container.innerHTML = '<p style="color: red;">Failed to load project documentation. Ensure WBS pipeline has been run.</p>';
+        }
+    },
+
+    switchDoc(title) {
+        // Highlight active doc link in navigation sidebar
+        document.querySelectorAll('.doc-nav-item').forEach(el => {
+            el.classList.remove('active');
+            if (el.textContent.trim() === title) {
+                el.classList.add('active');
+            }
+        });
+
+        const container = document.getElementById('doc-display-content');
+        const docContent = this.loadedDocs[title];
+        if (!docContent) {
+            container.innerHTML = `<h3>${title}</h3><p style="color: var(--text-muted); margin-top: 1rem;">This document has not been generated yet. Please generate the project plan to compile it.</p>`;
+            return;
+        }
+
+        container.innerHTML = this.parseMarkdown(docContent);
+    },
+
+    parseMarkdown(markdown) {
+        if (!markdown) return '';
+        let html = markdown;
+
+        // Escape HTML
+        html = html
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+
+        // Headings
+        html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+        html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+        html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+
+        // Bold
+        html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+        // Code blocks
+        html = html.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+        // Horizontal Rule
+        html = html.replace(/^---$/gim, '<hr style="border: 0; border-top: 1px solid var(--color-sedate-gray-light); margin: 1.5rem 0;">');
+
+        // Tables
+        const lines = html.split('\n');
+        let inTable = false;
+        let tableHTML = '';
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i].trim();
+            if (line.startsWith('|')) {
+                if (!inTable) {
+                    inTable = true;
+                    tableHTML = '<table class="table">';
+                }
+                const cells = line.split('|').slice(1, -1);
+                const isHeaderDivider = cells.every(c => c.trim().startsWith('-'));
+                if (isHeaderDivider) {
+                    lines[i] = '';
+                    continue;
+                }
+                
+                const isHeaderRow = (tableHTML === '<table class="table">');
+                tableHTML += '<tr>';
+                cells.forEach(cell => {
+                    const tag = isHeaderRow ? 'th' : 'td';
+                    tableHTML += `<${tag}>${cell.trim()}</${tag}>`;
+                });
+                tableHTML += '</tr>';
+                lines[i] = '';
+            } else {
+                if (inTable) {
+                    inTable = false;
+                    tableHTML += '</table>';
+                    lines[i - 1] = tableHTML;
+                }
+            }
+        }
+        if (inTable) {
+            tableHTML += '</table>';
+            lines[lines.length - 1] = tableHTML;
+        }
+        html = lines.filter(l => l !== '').join('\n');
+
+        // Bullet Lists
+        html = html.replace(/^\s*-\s+(.*$)/gim, '<li>$1</li>');
+        html = html.replace(/^\s*\*\s+(.*$)/gim, '<li>$1</li>');
+        
+        // Wrap bullet lists
+        html = html.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
+
+        // Line breaks
+        html = html.replace(/\n\n/g, '<p></p>');
+
+        return html;
     }
 };
 
