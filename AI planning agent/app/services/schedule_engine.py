@@ -85,14 +85,23 @@ async def generate_schedule(
             "severity": "critical",
         })
 
+    # --- Schedule tasks first ---
+    task_schedules = _schedule_tasks(all_tasks, start, total_available_days, warnings, productive_hours_per_day, required_headcount)
+
+    # Calculate actual project deadline based on scheduling
+    max_end_date = start
+    for ts in task_schedules:
+        if ts["scheduled_end"] and ts["scheduled_end"] > max_end_date:
+            max_end_date = ts["scheduled_end"]
+
+    # Align project deadline to the actual scheduling finish date
+    deadline = max_end_date
+
     # --- Generate Milestones ---
     milestones = await _generate_milestones(project_id, start, deadline)
 
-    # --- Generate Sprints ---
-    sprints = await _assign_sprints(project_id, groups, start, deadline, sprint_duration_days, productive_hours_per_day, required_headcount)
-
-    # --- Schedule tasks ---
-    task_schedules = _schedule_tasks(all_tasks, start, total_available_days, warnings, productive_hours_per_day, required_headcount)
+    # --- Generate Sprints (aligned with task dates) ---
+    sprints = await _assign_sprints(project_id, groups, start, deadline, task_schedules, sprint_duration_days)
 
     # --- Persist task schedules ---
     async def update_task_sched(ts):
@@ -213,129 +222,44 @@ async def _assign_sprints(
     groups: list[Any],
     start: datetime,
     deadline: datetime,
+    task_schedules: list[dict[str, Any]],
     sprint_duration_days: int = 14,
-    productive_hours_per_day: float = 6.0,
-    required_headcount: int = 2,
 ) -> list[dict[str, Any]]:
-    # 1. Gather all tasks
-    all_sprint_tasks: list[tuple[float, Any]] = []
-    for g_idx, group in enumerate(groups):
-        tasks = getattr(group, "tasks", None) or []
-        for task in tasks:
-            effort = task.effortHours or task.estimatedHours or 4
-            all_sprint_tasks.append((effort, task))
-
-    # Sort by milestone number first, then order
-    import re
-    def get_m_num(title: str) -> int:
-        match = re.search(r'Milestone\s*(\d+)', title, re.IGNORECASE)
-        return int(match.group(1)) if match else 999
-
-    all_sprint_tasks.sort(key=lambda x: (get_m_num(x[1].title), x[1].order if hasattr(x[1], "order") else 0))
-
-    task_deps: dict[str, list[str]] = {}
-    for _, task in all_sprint_tasks:
-        deps: list[str] = []
-        if task.dependencies:
-            try:
-                deps = json.loads(task.dependencies)
-            except (json.JSONDecodeError, TypeError):
-                deps = [task.dependencies] if task.dependencies else []
-        task_deps[task.id] = deps
-
-    # Topological sort for sprint assignment
-    in_degree: dict[str, int] = {t.id: 0 for _, t in all_sprint_tasks}
-    dep_to: dict[str, list[str]] = defaultdict(list)
-
-    for _, task in all_sprint_tasks:
-        for dep_id in task_deps.get(task.id, []):
-            if dep_id in in_degree:
-                dep_to[dep_id].append(task.id)
-                in_degree[task.id] = in_degree.get(task.id, 0) + 1
-
-    queue: deque = deque(tid for tid, deg in in_degree.items() if deg == 0)
-    topo_order: list[str] = []
-
-    while queue:
-        tid = queue.popleft()
-        topo_order.append(tid)
-        for child in dep_to[tid]:
-            in_degree[child] -= 1
-            if in_degree[child] == 0:
-                queue.append(child)
-
-    if len(topo_order) != len(all_sprint_tasks):
-        logger.warning("Circular dependency detected; using fallback ordering")
-        topo_order = [t.id for _, t in all_sprint_tasks]
-
-    tid_to_task = {t.id: t for _, t in all_sprint_tasks}
-    tid_to_effort = {t.id: e for e, t in all_sprint_tasks}
-
-    # Assign to sprints dynamically
-    MAX_SPRINT_EFFORT = sprint_duration_days * productive_hours_per_day * required_headcount
-    sprint_efforts: list[float] = [0.0]
-    sprint_tasks: list[list[Any]] = [[]]
-    dep_sprint_map: dict[str, int] = {}
-
-    for tid in topo_order:
-        task = tid_to_task.get(tid)
-        if not task:
-            continue
-        effort = tid_to_effort.get(tid, 4.0)
-
-        deps = task_deps.get(tid, [])
-        latest_dep_sprint = -1
-        for dep_id in deps:
-            ds = dep_sprint_map.get(dep_id, -1)
-            if ds > latest_dep_sprint:
-                latest_dep_sprint = ds
-
-        # Find the first available sprint after the latest dependency
-        start_search = max(0, latest_dep_sprint)
-        assigned_sprint = -1
-        
-        for s in range(start_search, len(sprint_efforts)):
-            if sprint_efforts[s] + effort <= MAX_SPRINT_EFFORT:
-                assigned_sprint = s
-                break
-                
-        # If no existing sprint has capacity, append a new one
-        if assigned_sprint == -1:
-            # We must also respect the dependency, so we can't assign earlier than latest_dep_sprint
-            # if start_search is beyond current len, we need to pad (shouldn't happen sequentially, but just in case)
-            assigned_sprint = max(start_search, len(sprint_efforts))
-            while len(sprint_efforts) <= assigned_sprint:
-                sprint_efforts.append(0.0)
-                sprint_tasks.append([])
-
-        sprint_efforts[assigned_sprint] += effort
-        dep_sprint_map[tid] = assigned_sprint
-        sprint_tasks[assigned_sprint].append(task)
-
-    num_sprints = len(sprint_efforts)
-
-    # Update GroupingTask with sprint metadata
-    sprints_info: list[dict[str, Any]] = []
-    active_groups: dict[str, dict[str, Any]] = {}
+    tid_to_schedule = {ts["task_id"]: ts for ts in task_schedules}
     group_update_calls = []
+    active_groups: dict[str, dict[str, Any]] = {}
 
-    for s_idx in range(num_sprints):
-        if not sprint_tasks[s_idx]:
-            continue
+    max_sprint_num = 1
+    task_sprints: dict[str, int] = {}
+    for ts in task_schedules:
+        s_start = ts["scheduled_start"]
+        if s_start:
+            days_from_start = (s_start - start).days
+            sprint_idx = max(0, days_from_start // sprint_duration_days)
+            sprint_num = sprint_idx + 1
+            task_sprints[ts["task_id"]] = sprint_num
+            if sprint_num > max_sprint_num:
+                max_sprint_num = sprint_num
+
+    for s_idx in range(max_sprint_num):
+        sprint_num = s_idx + 1
         s_start = start + timedelta(days=s_idx * sprint_duration_days)
         s_end = s_start + timedelta(days=sprint_duration_days)
 
+        sprint_tids = [tid for tid, s_num in task_sprints.items() if s_num == sprint_num]
+        if not sprint_tids:
+            continue
+
         group_tasks: dict[str, list[Any]] = defaultdict(list)
-        for task in sprint_tasks[s_idx]:
-            if task.groupId:
-                group_tasks[task.groupId].append(task)
+        for tid in sprint_tids:
+            for g in groups:
+                for t in (getattr(g, "tasks", None) or []):
+                    if t.id == tid:
+                        group_tasks[g.id].append(t)
 
         for gid, gtasks in group_tasks.items():
             g = next((g for g in groups if g.id == gid), None)
             if g:
-                sprint_num = s_idx + 1
-                
-                # Define async closure to capture parameters correctly
                 async def update_group_sprint(g_id=gid, s_num=sprint_num, start_d=s_start, end_d=s_end):
                     await db.groupingtask.update(
                         where={"id": g_id},
@@ -365,7 +289,6 @@ async def _assign_sprints(
         await asyncio.gather(*group_update_calls)
 
     sprints_info = sorted(active_groups.values(), key=lambda x: (x["sprint_number"], x["group_name"]))
-
     return sprints_info
 
 

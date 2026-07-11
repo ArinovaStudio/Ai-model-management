@@ -120,11 +120,10 @@ async def generate_wbs(
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    trinity_xml = await ollama_service.generate_architecture_trinity(
+                    wbs_data = await ollama_service.generate_combined_wbs(
                         context=context,
                         feature=f"{feature.title}: {feature.description}"
                     )
-                    wbs_data = await ollama_service.generate_wbs_tasks(trinity_xml)
                     if wbs_data and "milestones" in wbs_data and wbs_data["milestones"]:
                         return feature, wbs_data, False
                     

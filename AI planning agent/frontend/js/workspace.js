@@ -137,6 +137,15 @@ const workspace = {
                 this.updateExpectedDeadlineBanner(sched.expected_deadline);
             } catch(e) { console.warn("No schedule found"); }
             
+            // Clear cached layouts to force re-render on tab click
+            document.getElementById('strategy-container').innerHTML = '';
+            document.getElementById('architecture-container').innerHTML = '';
+            document.getElementById('schedule-container').innerHTML = '';
+            document.getElementById('wbs-container').innerHTML = '';
+            document.getElementById('milestones-container').innerHTML = '';
+            const docDisp = document.getElementById('doc-display-content');
+            if (docDisp) docDisp.innerHTML = '';
+
             // Transition to Plan State
             setTimeout(() => {
                 this.showPlanState();
@@ -618,9 +627,22 @@ const workspace = {
             `).join('');
 
             // Build Database Design display
+            let entities = dbDesign.entities || [];
+            if (entities.length === 0 && dbDesign.entityModeling && dbDesign.entityModeling.length > 0) {
+                entities = dbDesign.entityModeling.map(e => ({
+                    name: e.entity || e.name || 'Table',
+                    description: e.description || '',
+                    fields: (e.attributes || e.fields || []).map(f => ({
+                        name: f.name || 'field',
+                        type: f.type || 'text',
+                        constraints: f.constraints || ''
+                    }))
+                }));
+            }
+
             let dbHtml = '<p style="font-size:0.9rem; color:var(--text-muted);">No database schemas defined.</p>';
-            if (dbDesign.entities && dbDesign.entities.length > 0) {
-                dbHtml = dbDesign.entities.map(e => `
+            if (entities && entities.length > 0) {
+                dbHtml = entities.map(e => `
                     <div style="margin-bottom: 1rem; padding: 1rem; background: var(--bg-main); border: 1px solid var(--color-sedate-gray-light); border-radius: var(--radius-md);">
                         <div style="font-weight:600; font-size:0.95rem; margin-bottom:0.5rem; color:var(--color-dusty-rose);">Table: ${e.name}</div>
                         <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">${e.description || ''}</div>
@@ -668,14 +690,14 @@ const workspace = {
 
             // Build Security
             let secHtml = '<p style="font-size:0.9rem; color:var(--text-muted);">No security specs defined.</p>';
-            if (sec.authentication || sec.authorization || sec.dataProtection) {
+            if (sec.authentication || sec.authorization || sec.dataProtection || sec.authStrategy) {
                 secHtml = `
                     <div style="font-size:0.9rem; line-height:1.5;">
                         <h5 style="margin-bottom:0.25rem; color:var(--color-sage);">Authentication</h5>
-                        <p style="margin-bottom:1rem; color:var(--text-muted);">${sec.authentication || 'N/A'}</p>
+                        <p style="margin-bottom:1rem; color:var(--text-muted);">${sec.authentication || sec.authStrategy || 'N/A'}</p>
                         
                         <h5 style="margin-bottom:0.25rem; color:var(--color-sage);">Authorization</h5>
-                        <p style="margin-bottom:1rem; color:var(--text-muted);">${sec.authorization || 'N/A'}</p>
+                        <p style="margin-bottom:1rem; color:var(--text-muted);">${sec.authorization || sec.authStrategy || 'N/A'}</p>
 
                         <h5 style="margin-bottom:0.25rem; color:var(--color-sage);">Data Protection & Encryption</h5>
                         <p style="color:var(--text-muted);">${sec.dataProtection || 'N/A'}</p>
@@ -812,30 +834,106 @@ const workspace = {
     },
 
     loadedDocs: {},
+    docPollInterval: null,
 
     async loadDocumentation() {
+        if (this.docPollInterval) {
+            clearInterval(this.docPollInterval);
+            this.docPollInterval = null;
+        }
+
+        const pollDocs = async () => {
+            try {
+                const docs = await window.api.getPlanDocs(this.projectId);
+                this.loadedDocs = {};
+                let stillCompiling = false;
+
+                docs.forEach(doc => {
+                    this.loadedDocs[doc.title] = doc.content;
+                    if (doc.content === "Generating...") {
+                        stillCompiling = true;
+                    }
+                });
+
+                const navItems = {
+                    'Core Technical Blueprint': 'nav-blueprint',
+                    'Project Constraints': 'nav-constraints',
+                    'Success Metrics Framework': 'nav-metrics',
+                    'Assumptions Register': 'nav-assumptions',
+                    'Decision Brief': 'nav-decision'
+                };
+
+                Object.keys(navItems).forEach(title => {
+                    const elId = navItems[title];
+                    const navEl = document.getElementById(elId);
+                    if (navEl) {
+                        const statusEl = navEl.querySelector('.doc-status');
+                        if (statusEl) {
+                            const content = this.loadedDocs[title];
+                            if (!content) {
+                                statusEl.textContent = 'Queueing...';
+                                statusEl.style.color = 'var(--text-muted)';
+                                stillCompiling = true;
+                            } else if (content === 'Generating...') {
+                                statusEl.innerHTML = '<span class="spinner" style="display:inline-block; width:10px; height:10px; border:2px solid var(--color-dusty-rose); border-radius:50%; border-top-color:transparent; animation:spin 1s linear infinite;"></span> Generating...';
+                                statusEl.style.color = 'var(--color-dusty-rose)';
+                                stillCompiling = true;
+                            } else {
+                                statusEl.textContent = 'Ready';
+                                statusEl.style.color = 'var(--color-sage)';
+                            }
+                        }
+                    }
+                });
+
+                const activeNav = document.querySelector('.doc-nav-item.active');
+                if (activeNav) {
+                    const activeTitle = activeNav.querySelector('span').textContent.trim();
+                    const activeContent = this.loadedDocs[activeTitle];
+                    const container = document.getElementById('doc-display-content');
+                    if (activeContent && activeContent !== 'Generating...') {
+                        if (container.querySelector('.loader-msg') || container.innerHTML.includes('Generating...')) {
+                            container.innerHTML = this.parseMarkdown(activeContent);
+                        }
+                    } else if (activeContent === 'Generating...') {
+                        container.innerHTML = `<div class="loader-msg"><h3>${activeTitle}</h3><p style="color: var(--color-dusty-rose); margin-top: 1rem;"><span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid var(--color-dusty-rose); border-radius:50%; border-top-color:transparent; animation:spin 1s linear infinite; margin-right: 5px;"></span> AI solutions architect is compiling this document in the background...</p></div>`;
+                    }
+                }
+
+                if (!stillCompiling && this.docPollInterval) {
+                    clearInterval(this.docPollInterval);
+                    this.docPollInterval = null;
+                }
+            } catch (e) {
+                console.error('Failed to poll plan documents:', e);
+            }
+        };
+
         const container = document.getElementById('doc-display-content');
         container.innerHTML = '<p style="color: var(--text-muted);">Loading Project Documentation...</p>';
-        try {
-            const docs = await window.api.getPlanDocs(this.projectId);
-            this.loadedDocs = {};
-            docs.forEach(doc => {
-                this.loadedDocs[doc.title] = doc.content;
-            });
+        await pollDocs();
 
-            // Default to Core Technical Blueprint
-            this.switchDoc('Core Technical Blueprint');
-        } catch (e) {
-            console.error('Failed to load plan documents:', e);
-            container.innerHTML = '<p style="color: red;">Failed to load project documentation. Ensure WBS pipeline has been run.</p>';
+        this.switchDoc('Core Technical Blueprint');
+
+        let needsInterval = false;
+        const requiredDocs = ['Core Technical Blueprint', 'Project Constraints', 'Success Metrics Framework', 'Assumptions Register', 'Decision Brief'];
+        requiredDocs.forEach(t => {
+            const content = this.loadedDocs[t];
+            if (!content || content === 'Generating...') {
+                needsInterval = true;
+            }
+        });
+
+        if (needsInterval) {
+            this.docPollInterval = setInterval(pollDocs, 4000);
         }
     },
 
     switchDoc(title) {
-        // Highlight active doc link in navigation sidebar
         document.querySelectorAll('.doc-nav-item').forEach(el => {
             el.classList.remove('active');
-            if (el.textContent.trim() === title) {
+            const spanText = el.querySelector('span').textContent.trim();
+            if (spanText === title) {
                 el.classList.add('active');
             }
         });
@@ -843,7 +941,12 @@ const workspace = {
         const container = document.getElementById('doc-display-content');
         const docContent = this.loadedDocs[title];
         if (!docContent) {
-            container.innerHTML = `<h3>${title}</h3><p style="color: var(--text-muted); margin-top: 1rem;">This document has not been generated yet. Please generate the project plan to compile it.</p>`;
+            container.innerHTML = `<h3>${title}</h3><p style="color: var(--text-muted); margin-top: 1rem;">This document is queued for generation. Please wait...</p>`;
+            return;
+        }
+
+        if (docContent === 'Generating...') {
+            container.innerHTML = `<div class="loader-msg"><h3>${title}</h3><p style="color: var(--color-dusty-rose); margin-top: 1rem;"><span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid var(--color-dusty-rose); border-radius:50%; border-top-color:transparent; animation:spin 1s linear infinite; margin-right: 5px;"></span> AI solutions architect is compiling this document in the background...</p></div>`;
             return;
         }
 

@@ -82,13 +82,17 @@ async def run_validation(
 
     # 2. Document Coverage (15 pts)
     total_docs = len(plan_docs) + len(docs)
-    if total_docs == 0:
+    has_description = bool(info and info.description and len(info.description.strip()) > 10)
+
+    if total_docs == 0 and not has_description:
         doc_score = 0.0
         warnings.append({
             "category": "documents",
             "message": "No documents have been ingested for this project",
             "severity": "high",
         })
+    elif total_docs == 0 and has_description:
+        doc_score = DOCUMENT_WEIGHT
     elif total_docs == 1:
         doc_score = DOCUMENT_WEIGHT * 0.5
     else:
@@ -122,38 +126,45 @@ async def run_validation(
             deadline = deadline.replace(tzinfo=timezone.utc)
 
         available_days = max(1, (deadline - start).days)
-        total_est = sum(g.totalDurationDays or 0 for g in groups)
+        
+        all_tasks_list = []
+        for g in groups:
+            all_tasks_list.extend(getattr(g, "tasks", None) or [])
+        
+        scheduled_ends = [t.scheduledEnd for t in all_tasks_list if t.scheduledEnd]
+        if scheduled_ends:
+            max_end = max(scheduled_ends)
+            if max_end.tzinfo is None:
+                max_end = max_end.replace(tzinfo=timezone.utc)
+            actual_duration = max(0, (max_end - start).days)
+        else:
+            actual_duration = 0
 
-        if total_est == 0:
+        if actual_duration == 0:
             timeline_score = TIMELINE_WEIGHT * 0.3
             warnings.append({
                 "category": "timeline",
-                "message": "No effort estimates available; timeline feasibility cannot be fully assessed",
+                "message": "No effort estimates or schedules available; timeline feasibility cannot be fully assessed",
                 "severity": "medium",
             })
-        elif total_est <= available_days:
+        elif actual_duration <= available_days:
             timeline_score = TIMELINE_WEIGHT
-        elif total_est <= available_days * 1.2:
+        elif actual_duration <= available_days * 1.2:
             timeline_score = TIMELINE_WEIGHT * 0.6
             warnings.append({
                 "category": "timeline",
-                "message": f"Estimated duration ({total_est:.1f}d) slightly exceeds timeline ({available_days}d)",
+                "message": f"Scheduled completion ({actual_duration}d) slightly exceeds timeline ({available_days}d)",
                 "severity": "medium",
             })
         else:
             timeline_score = TIMELINE_WEIGHT * 0.2
             warnings.append({
                 "category": "timeline",
-                "message": f"Estimated duration ({total_est:.1f}d) significantly exceeds timeline ({available_days}d)",
+                "message": f"Scheduled completion ({actual_duration}d) significantly exceeds timeline ({available_days}d)",
                 "severity": "critical",
             })
     else:
-        timeline_score = 0.0
-        warnings.append({
-            "category": "timeline",
-            "message": "Project start date or deadline not set",
-            "severity": "critical",
-        })
+        timeline_score = TIMELINE_WEIGHT
 
     # 5. Technology Certainty (15 pts)
     tech_categories = {t.category for t in technologies}

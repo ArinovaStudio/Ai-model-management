@@ -130,6 +130,41 @@ Return ONLY a valid JSON object matching this schema exactly. No trailing commas
 """
 
 
+COMBINED_WBS_PROMPT = """You are an Expert Solution Architect and Technical Project Manager.
+Given a project context and a specific feature request, you must define the implementation approach, database/relational models, deployment configurations, and break it down into sequential milestones and granular tasks.
+
+CRITICAL GENERATION RULES:
+1. Restrict your technical strategy ONLY to the technology stack defined in the project context. Do not introduce outside frameworks or databases.
+2. Break down the feature execution into exactly 5 logical, sequential Milestone phases:
+   - Milestone 1: Core Foundation & Context Baseline
+   - Milestone 2: Functional Feature Engineering & System Core
+   - Milestone 3: Interface Integration & Frontend Synchronization
+   - Milestone 4: Verification, Hardening, & Risk Mitigation (including E2E and UAT)
+   - Milestone 5: Deployment Go-Live & Pipeline Sign-off
+
+Return ONLY a valid JSON object matching this schema exactly. No markdown code blocks, trailing commas, or conversational text:
+{
+  "implementation": "Core engineering approach, module dependencies, edge cases and failure handling",
+  "architecture": "Logical sub-components, database entities, relational models, and detailed user flows",
+  "deployment": "Server provisioning, environment variables, migration steps, and verification sequences",
+  "milestones": [
+    {
+      "title": "Milestone Phase Title",
+      "description": "Milestone Description detailing phase goals",
+      "tasks": [
+        {
+          "title": "Granular, context-specific task title",
+          "description": "Explicit step-by-step technical execution plan for this task",
+          "estimated_hours": 4.5,
+          "depends_on": ["Title of previous task this blocks on", "Can be empty [] for independent tasks"]
+        }
+      ]
+    }
+  ]
+}
+"""
+
+
 PRODUCT_STRATEGY_PROMPT = """You are a Chief Product Officer. Given the project context, define the product strategy.
 CRITICAL INSTRUCTIONS FOR LLAMA 3:
 1. You must first reason about your strategy inside <thinking>...</thinking> XML tags. Discuss market positioning and differentiation.
@@ -555,6 +590,30 @@ class OllamaService:
             logger.error("Ollama WBS task generation failed: %s", exc)
             return {}
 
+    async def generate_combined_wbs(self, context: str, feature: str) -> dict[str, Any]:
+        if not await self.is_available():
+            return {}
+
+        prompt = f"<context>\n{context}\n</context>\n<feature>\n{feature}\n</feature>"
+        try:
+            response = await self.client.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": COMBINED_WBS_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                format="json",
+                options={"temperature": 0.1, "num_predict": 4096},
+            )
+            raw = response["message"]["content"].strip()
+            parsed = self._parse_json_response(raw)
+            if isinstance(parsed, dict) and "milestones" in parsed:
+                return parsed
+            return {}
+        except Exception as exc:
+            logger.error("Ollama combined WBS generation failed: %s", exc)
+            return {}
+
     async def generate_intelligence_layer(self, system_prompt: str, context: str, temperature: float = 0.1) -> dict[str, Any]:
         if not await self.is_available():
             return {}
@@ -566,7 +625,6 @@ class OllamaService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": context},
                 ],
-                format="json",
                 options={"temperature": temperature, "num_predict": 4096},
             )
 

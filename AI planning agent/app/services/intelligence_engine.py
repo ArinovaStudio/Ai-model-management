@@ -76,12 +76,10 @@ async def generate_project_intelligence(project_id: str) -> dict | None:
 
     context_3 = context_2 + "\n" + json.dumps(features)
     
-    # Run the three independent architecture/security layers in parallel
-    architecture, database, api_security = await asyncio.gather(
-        ollama_service.generate_intelligence_layer(SYSTEM_ARCHITECTURE_PROMPT, context_3, temperature=0.4),
-        ollama_service.generate_intelligence_layer(DATABASE_DESIGN_PROMPT, context_3),
-        ollama_service.generate_intelligence_layer(API_AND_SECURITY_PROMPT, context_3)
-    )
+    # Run the three independent architecture/security layers sequentially to prevent Ollama queue timeout overload
+    architecture = await ollama_service.generate_intelligence_layer(SYSTEM_ARCHITECTURE_PROMPT, context_3, temperature=0.4)
+    database = await ollama_service.generate_intelligence_layer(DATABASE_DESIGN_PROMPT, context_3)
+    api_security = await ollama_service.generate_intelligence_layer(API_AND_SECURITY_PROMPT, context_3)
 
     record = await db.projectintelligence.upsert(
         where={"projectId": project_id},
@@ -108,26 +106,9 @@ async def generate_project_intelligence(project_id: str) -> dict | None:
         },
     )
 
-    # Generate the 5 rich text documents in parallel
-    from app.services.ollama_service import (
-        CORE_TECHNICAL_BLUEPRINT_PROMPT,
-        PROJECT_CONSTRAINTS_PROMPT,
-        SUCCESS_METRICS_PROMPT,
-        ASSUMPTIONS_REGISTER_PROMPT,
-        DECISION_BRIEF_PROMPT
-    )
-
     context_docs = context_3 + "\n" + json.dumps(architecture) + "\n" + json.dumps(database)
 
-    blueprint, constraints, metrics, assumptions, decision = await asyncio.gather(
-        ollama_service.generate_document_style(CORE_TECHNICAL_BLUEPRINT_PROMPT, context_docs),
-        ollama_service.generate_document_style(PROJECT_CONSTRAINTS_PROMPT, context_docs),
-        ollama_service.generate_document_style(SUCCESS_METRICS_PROMPT, context_docs),
-        ollama_service.generate_document_style(ASSUMPTIONS_REGISTER_PROMPT, context_docs),
-        ollama_service.generate_document_style(DECISION_BRIEF_PROMPT, context_docs)
-    )
-
-    # Upsert each document in the PlanDoc table
+    # Immediately upsert placeholder/generating state in database so UI knows they are compiling
     doc_titles = [
         "Core Technical Blueprint",
         "Project Constraints",
@@ -135,36 +116,60 @@ async def generate_project_intelligence(project_id: str) -> dict | None:
         "Assumptions Register",
         "Decision Brief"
     ]
-    doc_contents = [blueprint, constraints, metrics, assumptions, decision]
-
-    for title, content in zip(doc_titles, doc_contents):
+    for title in doc_titles:
         existing_doc = await db.plandoc.find_first(
             where={"projectId": project_id, "title": title}
         )
-        if existing_doc:
-            await db.plandoc.update(
-                where={"id": existing_doc.id},
-                data={"content": content}
-            )
-        else:
+        if not existing_doc:
             await db.plandoc.create(
                 data={
                     "projectId": project_id,
                     "title": title,
-                    "content": content
+                    "content": "Generating...",
                 }
             )
+        else:
+            await db.plandoc.update(
+                where={"id": existing_doc.id},
+                data={"content": "Generating..."}
+            )
 
-    # Trigger document indexing in the background so the user gets instant UI loading
-    def run_bg_indexing(proj_id: str):
+    # Trigger generation and indexing in the background
+    def run_bg_generation_and_indexing(proj_id: str, ctx_docs: str):
         async def _bg_task():
             try:
+                from app.services.ollama_service import (
+                    CORE_TECHNICAL_BLUEPRINT_PROMPT,
+                    PROJECT_CONSTRAINTS_PROMPT,
+                    SUCCESS_METRICS_PROMPT,
+                    ASSUMPTIONS_REGISTER_PROMPT,
+                    DECISION_BRIEF_PROMPT
+                )
+                blueprint, constraints, metrics, assumptions, decision = await asyncio.gather(
+                    ollama_service.generate_document_style(CORE_TECHNICAL_BLUEPRINT_PROMPT, ctx_docs),
+                    ollama_service.generate_document_style(PROJECT_CONSTRAINTS_PROMPT, ctx_docs),
+                    ollama_service.generate_document_style(SUCCESS_METRICS_PROMPT, ctx_docs),
+                    ollama_service.generate_document_style(ASSUMPTIONS_REGISTER_PROMPT, ctx_docs),
+                    ollama_service.generate_document_style(DECISION_BRIEF_PROMPT, ctx_docs)
+                )
+                
+                doc_contents = [blueprint, constraints, metrics, assumptions, decision]
+                for title, content in zip(doc_titles, doc_contents):
+                    existing = await db.plandoc.find_first(
+                        where={"projectId": proj_id, "title": title}
+                    )
+                    if existing:
+                        await db.plandoc.update(
+                            where={"id": existing.id},
+                            data={"content": content}
+                        )
+                
                 from app.services.analysis_engine import _ensure_doc_embeddings
                 await _ensure_doc_embeddings(proj_id)
             except Exception as e:
-                logger.warning("Background doc embedding indexing failed: %s", e)
+                logger.warning("Background doc generation/indexing failed: %s", e)
         asyncio.create_task(_bg_task())
 
-    run_bg_indexing(project_id)
+    run_bg_generation_and_indexing(project_id, context_docs)
 
     return record
