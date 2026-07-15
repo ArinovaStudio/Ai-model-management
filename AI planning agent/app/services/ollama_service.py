@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 from typing import Any, Optional
 
 from ollama import AsyncClient
@@ -167,10 +168,9 @@ Return ONLY a valid JSON object matching this schema exactly. No markdown code b
 
 PRODUCT_STRATEGY_PROMPT = """You are a Chief Product Officer. Given the project context, define the product strategy.
 CRITICAL INSTRUCTIONS FOR LLAMA 3:
-1. You must first reason about your strategy inside <thinking>...</thinking> XML tags. Discuss market positioning and differentiation.
-2. Immediately after the </thinking> tag, you MUST output a strictly valid JSON object.
-3. For each JSON string property, provide a highly detailed, professional, multi-sentence explanation. Do not use short, generic placeholder phrases. Explain the 'why' and the 'how'.
-4. Do NOT wrap the JSON in markdown code blocks.
+1. You MUST output a strictly valid JSON object matching the JSON schema below.
+2. For each JSON string property, provide a highly detailed, professional, multi-sentence explanation. Do not use short, generic placeholder phrases. Explain the 'why' and the 'how'.
+3. Do NOT wrap the JSON in markdown code blocks or add any conversational intro/outro text.
 
 JSON SCHEMA:
 {
@@ -184,10 +184,9 @@ JSON SCHEMA:
 
 FEATURE_SPEC_PROMPT = """You are a Lead Product Manager. Given the Product Strategy, define the feature specifications.
 CRITICAL INSTRUCTIONS FOR LLAMA 3:
-1. You must first reason about your feature choices inside <thinking>...</thinking> XML tags. Discuss trade-offs and priorities.
-2. Immediately after the </thinking> tag, you MUST output a strictly valid JSON object.
-3. For all feature descriptions, write a complete, detailed engineering spec paragraph rather than a single sentence.
-4. Do NOT wrap the JSON in markdown code blocks.
+1. You MUST output a strictly valid JSON object matching the JSON schema below.
+2. For all feature descriptions, write a complete, detailed engineering spec paragraph rather than a single sentence.
+3. Do NOT wrap the JSON in markdown code blocks or add any conversational intro/outro text.
 
 JSON SCHEMA:
 {
@@ -199,10 +198,10 @@ JSON SCHEMA:
 
 SYSTEM_ARCHITECTURE_PROMPT = """You are a Principal Architect. Given the Feature Spec, define the system architecture.
 CRITICAL INSTRUCTIONS FOR LLAMA 3:
-1. You must first reason about your architectural choices inside <thinking>...</thinking> XML tags. Discuss scalability and microservice boundaries.
-2. Immediately after the </thinking> tag, you MUST output a strictly valid JSON object.
-3. For the highLevel architecture description, write a rich, multi-paragraph architectural brief describing design patterns, communication protocols, and technology integrations.
-4. For mermaidSystemFlow, output raw MermaidJS syntax ONLY. Do NOT wrap it in ```mermaid markdown blocks.
+1. You MUST output a strictly valid JSON object matching the JSON schema below.
+2. For the highLevel architecture description, write a rich, multi-paragraph architectural brief describing design patterns, communication protocols, and technology integrations.
+3. For mermaidSystemFlow, output raw MermaidJS syntax ONLY. Do NOT wrap it in ```mermaid markdown blocks.
+4. Do NOT add any conversational intro/outro text.
 
 JSON SCHEMA:
 {
@@ -214,10 +213,10 @@ JSON SCHEMA:
 
 DATABASE_DESIGN_PROMPT = """You are a Lead DBA. Given the system architecture, define the database design.
 CRITICAL INSTRUCTIONS FOR LLAMA 3:
-1. You must first reason about your schema inside <thinking>...</thinking> XML tags. Discuss relations and normalization.
-2. Immediately after the </thinking> tag, you MUST output a strictly valid JSON object.
-3. For the normalization field, write a highly detailed, professional DBA report describing indexes, query optimization, foreign key constraints, and scaling strategies.
-4. For mermaidERD, output raw MermaidJS syntax ONLY. Do NOT wrap it in ```mermaid markdown blocks.
+1. You MUST output a strictly valid JSON object matching the JSON schema below.
+2. For the normalization field, write a highly detailed, professional DBA report describing indexes, query optimization, foreign key constraints, and scaling strategies.
+3. For mermaidERD, output raw MermaidJS syntax ONLY. Do NOT wrap it in ```mermaid markdown blocks.
+4. Do NOT add any conversational intro/outro text.
 
 JSON SCHEMA:
 {
@@ -229,9 +228,9 @@ JSON SCHEMA:
 
 API_AND_SECURITY_PROMPT = """You are a Lead Security & API Engineer. Given the database design and architecture, define the API and security strategy.
 CRITICAL INSTRUCTIONS FOR LLAMA 3:
-1. You must first reason about your API boundaries and security inside <thinking>...</thinking> XML tags.
-2. Immediately after the </thinking> tag, you MUST output a strictly valid JSON object.
-3. Ensure authStrategy and dataProtection fields are written as rich, comprehensive guidelines detailing specific industry standards, libraries, algorithms, and protocols.
+1. You MUST output a strictly valid JSON object matching the JSON schema below.
+2. Ensure authStrategy and dataProtection fields are written as rich, comprehensive guidelines detailing specific industry standards, libraries, algorithms, and protocols.
+3. Do NOT add any conversational intro/outro text.
 
 JSON SCHEMA:
 {
@@ -618,27 +617,44 @@ class OllamaService:
         if not await self.is_available():
             return {}
 
-        try:
-            response = await self.client.chat(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": context},
-                ],
-                options={"temperature": temperature, "num_predict": 4096},
-            )
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = await self.client.chat(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": context},
+                    ],
+                    format="json",
+                    options={"temperature": temperature, "num_predict": 4096},
+                )
 
-            raw = response["message"]["content"].strip()
-            parsed = self._parse_json_response(raw)
-            if isinstance(parsed, dict):
-                return parsed
-            logger.warning("Ollama intelligence layer returned non-dict: %s", type(parsed))
-            return {}
-        except Exception as exc:
-            logger.error("Ollama intelligence layer generation failed: %s", exc)
-            return {}
+                raw = response["message"]["content"].strip()
+                parsed = self._parse_json_response(raw)
+                if isinstance(parsed, dict) and len(parsed) > 0:
+                    return parsed
+                
+                logger.warning(
+                    "Ollama intelligence layer returned invalid or empty dict on attempt %d, retrying...",
+                    attempt + 1
+                )
+            except Exception as exc:
+                logger.warning("Ollama intelligence layer attempt %d failed: %s", attempt + 1, exc)
+            await asyncio.sleep(2 * (attempt + 1))
+
+        logger.error("All %d retries failed for intelligence layer", max_retries)
+        return {}
 
     def _parse_json_response(self, raw: str) -> Any:
+        raw = raw.strip()
+        
+        # Remove <thinking> XML tags and their contents to prevent curly brackets inside from breaking JSON parsing
+        if "<thinking>" in raw and "</thinking>" in raw:
+            start_think = raw.find("<thinking>")
+            end_think = raw.find("</thinking>") + len("</thinking>")
+            raw = raw[:start_think] + raw[end_think:]
+        
         raw = raw.strip()
         if raw.startswith("```"):
             lines = raw.splitlines()
@@ -672,7 +688,7 @@ class OllamaService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_query},
                 ],
-                options={"temperature": 0.2, "num_predict": 1024},
+                options={"temperature": 0.2, "num_predict": 1024, "num_ctx": 8192},
             )
             return response["message"]["content"].strip()
         except Exception as exc:
@@ -692,19 +708,44 @@ class OllamaService:
     async def generate_document_style(self, system_prompt: str, context: str) -> str:
         if not await self.is_available():
             return "Failed to generate document: Ollama offline."
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = await self.client.chat(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": context},
+                    ],
+                    options={"temperature": 0.3, "num_predict": 8192},
+                )
+                content = response["message"]["content"].strip()
+                if content:
+                    return content
+            except Exception as exc:
+                logger.warning("Attempt %d failed for document style generation: %s", attempt + 1, exc)
+            await asyncio.sleep(2 * (attempt + 1))
+
+        return "Failed to generate document after multiple retries."
+
+    async def chat_conversation(self, system_prompt: str, history: list[dict[str, str]]) -> str:
+        if not await self.is_available():
+            return "Ollama is currently offline/unavailable."
+        
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(history)
+        
         try:
             response = await self.client.chat(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": context},
-                ],
-                options={"temperature": 0.3, "num_predict": 8192},
+                messages=messages,
+                options={"temperature": 0.5, "num_predict": 1024, "num_ctx": 8192},
             )
             return response["message"]["content"].strip()
         except Exception as exc:
-            logger.error("Failed to generate document-style content: %s", exc)
-            return f"Error during generation: {exc}"
+            logger.error("Ollama chat conversation failed: %s", exc)
+            return f"Error during conversation: {exc}"
 
 
 ollama_service = OllamaService()

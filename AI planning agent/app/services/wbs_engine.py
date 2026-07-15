@@ -100,9 +100,17 @@ async def generate_wbs(
         pi = project.projectIntelligence
         context += "\n--- ARCHITECTURAL INTELLIGENCE ---\n"
         if pi.systemArchitecture:
-            context += f"System Architecture:\n{json.dumps(pi.systemArchitecture, indent=2)}\n"
-        if pi.featureSpecs:
-            context += f"Feature Specifications:\n{json.dumps(pi.featureSpecs, indent=2)}\n"
+            arch = pi.systemArchitecture
+            if isinstance(arch, dict):
+                high_level = arch.get("highLevel") or arch.get("description") or ""
+                context += f"System Architecture Overview: {high_level}\n"
+            elif isinstance(arch, str):
+                try:
+                    arch_dict = json.loads(arch)
+                    high_level = arch_dict.get("highLevel") or arch_dict.get("description") or ""
+                    context += f"System Architecture Overview: {high_level}\n"
+                except Exception:
+                    context += f"System Architecture: {arch[:1000]}\n"
 
     stored_groups: list[Any] = []
     global_task_index = 0
@@ -117,7 +125,7 @@ async def generate_wbs(
 
     async def get_feature_wbs(feature: Any) -> tuple[Any, Optional[dict[str, Any]], bool]:
         async with sem:
-            max_retries = 3
+            max_retries = 2
             for attempt in range(max_retries):
                 try:
                     wbs_data = await ollama_service.generate_combined_wbs(
@@ -136,7 +144,8 @@ async def generate_wbs(
                         "Failed WBS attempt %d for feature %s: %s",
                         attempt + 1, feature.id, e
                     )
-                await asyncio.sleep(1 * (attempt + 1))
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.5 * (attempt + 1))
             
             logger.error("All %d retries failed for feature %s", max_retries, feature.id)
             return feature, None, True

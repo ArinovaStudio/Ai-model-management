@@ -57,14 +57,21 @@ def _extract_between(text: str, patterns: list[str]) -> list[str]:
 
 
 def extract_timeline(
-    start_date: date,
-    deadline: date,
+    start_date: Optional[date],
+    deadline: Optional[date],
     texts: Optional[list[str]] = None,
 ) -> dict:
-    duration_days = (deadline - start_date).days
+    start_str = start_date.isoformat() if start_date else None
+    deadline_str = deadline.isoformat() if deadline else None
+    
+    if start_date and deadline:
+        duration_days = (deadline - start_date).days
+    else:
+        duration_days = 0
+
     result: dict = {
-        "start_date": start_date.isoformat(),
-        "deadline": deadline.isoformat(),
+        "start_date": start_str,
+        "deadline": deadline_str,
         "duration_days": max(duration_days, 0),
     }
 

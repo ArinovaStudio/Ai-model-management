@@ -182,6 +182,22 @@ const api = {
         const res = await fetch(`${API_BASE_URL}/${id}/plan-docs`);
         if (!res.ok) throw new Error('Failed to get plan docs');
         return res.json();
+    },
+
+    async getChatHistory(id) {
+        const res = await fetch(`${API_BASE_URL}/${id}/chat`);
+        if (!res.ok) throw new Error('Failed to fetch chat history');
+        return res.json();
+    },
+
+    async sendChatMessage(id, message) {
+        const res = await fetch(`${API_BASE_URL}/${id}/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message })
+        });
+        if (!res.ok) throw new Error('Failed to send chat message');
+        return res.json();
     }
 };
 

@@ -134,7 +134,7 @@ async def generate_project_intelligence(project_id: str) -> dict | None:
                 data={"content": "Generating..."}
             )
 
-    # Trigger generation and indexing in the background
+    # Trigger document generation sequentially in a background task to prevent HTTP keep-alive timeouts
     def run_bg_generation_and_indexing(proj_id: str, ctx_docs: str):
         async def _bg_task():
             try:
@@ -145,13 +145,12 @@ async def generate_project_intelligence(project_id: str) -> dict | None:
                     ASSUMPTIONS_REGISTER_PROMPT,
                     DECISION_BRIEF_PROMPT
                 )
-                blueprint, constraints, metrics, assumptions, decision = await asyncio.gather(
-                    ollama_service.generate_document_style(CORE_TECHNICAL_BLUEPRINT_PROMPT, ctx_docs),
-                    ollama_service.generate_document_style(PROJECT_CONSTRAINTS_PROMPT, ctx_docs),
-                    ollama_service.generate_document_style(SUCCESS_METRICS_PROMPT, ctx_docs),
-                    ollama_service.generate_document_style(ASSUMPTIONS_REGISTER_PROMPT, ctx_docs),
-                    ollama_service.generate_document_style(DECISION_BRIEF_PROMPT, ctx_docs)
-                )
+                # Generate the 5 strategic documents sequentially to prevent Ollama overload
+                blueprint = await ollama_service.generate_document_style(CORE_TECHNICAL_BLUEPRINT_PROMPT, ctx_docs)
+                constraints = await ollama_service.generate_document_style(PROJECT_CONSTRAINTS_PROMPT, ctx_docs)
+                metrics = await ollama_service.generate_document_style(SUCCESS_METRICS_PROMPT, ctx_docs)
+                assumptions = await ollama_service.generate_document_style(ASSUMPTIONS_REGISTER_PROMPT, ctx_docs)
+                decision = await ollama_service.generate_document_style(DECISION_BRIEF_PROMPT, ctx_docs)
                 
                 doc_contents = [blueprint, constraints, metrics, assumptions, decision]
                 for title, content in zip(doc_titles, doc_contents):
@@ -167,7 +166,9 @@ async def generate_project_intelligence(project_id: str) -> dict | None:
                 from app.services.analysis_engine import _ensure_doc_embeddings
                 await _ensure_doc_embeddings(proj_id)
             except Exception as e:
-                logger.warning("Background doc generation/indexing failed: %s", e)
+                logger.error("Background sequential doc generation/indexing failed: %s", e)
+        
+        import asyncio
         asyncio.create_task(_bg_task())
 
     run_bg_generation_and_indexing(project_id, context_docs)

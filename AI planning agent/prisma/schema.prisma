@@ -2,6 +2,7 @@ generator client {
   provider                    = "prisma-client-py"
   recursive_type_depth        = "-1"
   enable_experimental_decimal = true
+  output                      = "../venv/Lib/site-packages/prisma"
 }
 
 datasource db {
@@ -30,6 +31,7 @@ model Project {
   docs                Doc[]
   groupingTasks       GroupingTask[]
   resourceAllocations ResourceAllocation[]
+  chatMessages        ChatMessage[]
 }
 
 model ProjectIntelligence {
@@ -985,4 +987,15 @@ enum TICKET_STATUS {
   OPEN
   RESOLVED
   CLOSED
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  projectId String
+  role      String   // "user" or "assistant"
+  content   String
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }

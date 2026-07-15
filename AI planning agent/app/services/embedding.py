@@ -53,12 +53,48 @@ class EmbeddingService:
     def chunk_text(self, text: str, chunk_size: int = 700, overlap: int = 150) -> list[str]:
         if not text:
             return []
+        
+        # Split text into paragraphs/blocks first
+        blocks = text.split("\n\n")
         chunks = []
-        start = 0
-        while start < len(text):
-            end = start + chunk_size
-            chunks.append(text[start:end])
-            start += chunk_size - overlap
+        current_chunk = []
+        current_len = 0
+        
+        for block in blocks:
+            # Check if block is a markdown table
+            lines = block.strip().split("\n")
+            is_table = len(lines) >= 2 and any("|" in l for l in lines) and any("---" in l for l in lines)
+            
+            if is_table:
+                # If we have accumulated text, save it first
+                if current_chunk:
+                    chunks.append("\n\n".join(current_chunk))
+                    current_chunk = []
+                    current_len = 0
+                # Tables are preserved intact as atomic chunks
+                chunks.append(block)
+            else:
+                block_len = len(block)
+                if current_len + block_len > chunk_size:
+                    if current_chunk:
+                        chunks.append("\n\n".join(current_chunk))
+                    current_chunk = [block]
+                    current_len = block_len
+                else:
+                    current_chunk.append(block)
+                    current_len += block_len + 2 # account for separator
+                    
+        if current_chunk:
+            chunks.append("\n\n".join(current_chunk))
+            
+        # Fallback if no chunks were created (e.g. text didn't have double newlines)
+        if not chunks:
+            start = 0
+            while start < len(text):
+                end = start + chunk_size
+                chunks.append(text[start:end])
+                start += chunk_size - overlap
+                
         return chunks
 
     def serialize_embedding(self, embedding: list[float]) -> str:

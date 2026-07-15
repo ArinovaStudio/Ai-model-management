@@ -42,6 +42,7 @@ const workspace = {
 
                 await this.loadWBS();
             }
+            await this.loadChatHistory();
         } catch (error) {
             console.error('Failed to load project:', error);
             document.getElementById('project-title').textContent = 'Error loading project';
@@ -785,6 +786,28 @@ const workspace = {
         }
     },
 
+    async loadChatHistory() {
+        try {
+            const history = await window.api.getChatHistory(this.projectId);
+            const chatBox = document.getElementById('chat-messages');
+            if (!chatBox) return;
+
+            // Retain the default greeting message
+            chatBox.innerHTML = `<div class="msg msg-ai">Hi! I am your Project Context Assistant. Ask me anything about this project's requirements, technologies, system flow, database design, or constraints.</div>`;
+            
+            history.forEach(m => {
+                if (m.role === 'user') {
+                    chatBox.innerHTML += `<div class="msg msg-user">${m.content}</div>`;
+                } else {
+                    chatBox.innerHTML += `<div class="msg msg-ai">${this.parseMarkdown(m.content)}</div>`;
+                }
+            });
+            chatBox.scrollTop = chatBox.scrollHeight;
+        } catch (e) {
+            console.error('Failed to load chat history:', e);
+        }
+    },
+
     async handleSearch(e) {
         e.preventDefault();
         const input = document.getElementById('chat-input');
@@ -799,11 +822,11 @@ const workspace = {
         chatBox.scrollTop = chatBox.scrollHeight;
 
         try {
-            const res = await window.api.searchContext(this.projectId, query);
+            const res = await window.api.sendChatMessage(this.projectId, query);
             
             let aiText = "";
             if (res.answer) {
-                aiText += `<div style="margin-bottom: 0.75rem; line-height: 1.4;">${res.answer.replace(/\n/g, '<br>')}</div>`;
+                aiText += `<div style="margin-bottom: 0.75rem; line-height: 1.4;">${this.parseMarkdown(res.answer)}</div>`;
             }
 
             if (res.results && res.results.length > 0) {

@@ -435,3 +435,22 @@ class ValidationResponse(BaseModel):
 class ErrorResponse(BaseModel):
     detail: str
     error_code: Optional[str] = None
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+
+
+class ChatMessageResponse(BaseModel):
+    id: str
+    project_id: str
+    role: str
+    content: str
+    created_at: datetime
+
+
+class ChatResponse(BaseModel):
+    query: str
+    answer: str
+    results: list[SemanticSearchResult] = []
+
