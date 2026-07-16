@@ -85,9 +85,12 @@ const workspace = {
 
         try {
             const descInput = document.getElementById('project-description-input');
+            const archPattern = document.getElementById('project-architecture').value;
+            const updatePayload = { project_type: archPattern };
             if (descInput && descInput.value.trim()) {
-                await window.api.updateProjectInfo(this.projectId, { description: descInput.value.trim() });
+                updatePayload.description = descInput.value.trim();
             }
+            await window.api.updateProjectInfo(this.projectId, updatePayload);
 
             this.updateStep(1, 'active');
             await window.api.analyzeProject(this.projectId);

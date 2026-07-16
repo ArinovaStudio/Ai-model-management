@@ -81,7 +81,7 @@
                 <div class="card" style="margin-bottom: 1.5rem;">
                     <h3 class="mb-2">Project Preferences</h3>
                     <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">Adjust project constraints before generating the plan.</p>
-                    <div style="display: flex; gap: 1rem;">
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
                         <div style="flex: 1;">
                             <label for="sprint-duration" style="display: block; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.5rem;">Sprint Duration (Days)</label>
                             <input type="number" id="sprint-duration" class="form-input" value="14" min="7" max="30" style="width: 100%;">
@@ -90,6 +90,13 @@
                             <label for="productive-hours" style="display: block; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.5rem;">Productive Hours/Day</label>
                             <input type="number" id="productive-hours" class="form-input" value="6.0" min="1" max="12" step="0.5" style="width: 100%;">
                         </div>
+                    </div>
+                    <div>
+                        <label for="project-architecture" style="display: block; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.5rem;">Select Architecture Pattern</label>
+                        <select id="project-architecture" class="form-input" style="width: 100%; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-sedate-gray-light); background: var(--bg-card); color: var(--text-muted); font-size: 0.9rem;">
+                            <option value="Monolithic">Monolithic Architecture</option>
+                            <option value="Microservices">Microservices Architecture</option>
+                        </select>
                     </div>
                 </div>
 

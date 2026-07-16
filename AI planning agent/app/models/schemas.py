@@ -19,6 +19,7 @@ class ProjectInfoUpdate(BaseModel):
     deadline: Optional[datetime] = None
     scope: Optional[str] = None
     constraints: Optional[str] = None
+    project_type: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
 
 

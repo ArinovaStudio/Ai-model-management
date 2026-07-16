@@ -142,6 +142,15 @@ CRITICAL GENERATION RULES:
    - Milestone 3: Interface Integration & Frontend Synchronization
    - Milestone 4: Verification, Hardening, & Risk Mitigation (including E2E and UAT)
    - Milestone 5: Deployment Go-Live & Pipeline Sign-off
+3. Adapt tasks to the "Preferred Architecture Pattern" in the project context:
+   - For "Monolithic": Keep WBS tasks tightly bound to single-codebase layers (controllers, route endpoints, service layers), simple migrations, and in-process routing. Deployment should specify single container builds.
+     * CRITICAL MONOLITHIC CONSTRAINTS:
+       - NO EXTERNAL SERVICE URLs: Do not generate tasks to set up environment variables or endpoints pointing to other internal codebase modules (e.g., NO "INVENTORY_SERVICE_URL").
+       - IN-PROCESS CALLS ONLY: Do not write integration tasks using REST APIs or HTTP calls between internal modules. Modules must communicate via direct class/method imports or shared database queries.
+       - SINGLE CONTAINER BUILD: Do not create tasks to "provision new containers" or "deploy this feature to separate servers" for individual features. All features are deployed together as a single monolithic unit.
+       - SINGLE DB SCHEMA: All database tasks must refer to schema migrations on the shared database instance, never separate databases.
+   - For "Microservices": Bounding WBS tasks to distributed systems (setting up API Gateway, Docker configurations, message brokers, and inter-service HTTP/gRPC contracts, separate CI/CD per service).
+
 
 Return ONLY a valid JSON object matching this schema exactly. No markdown code blocks, trailing commas, or conversational text:
 {
@@ -196,17 +205,19 @@ JSON SCHEMA:
 }
 """
 
-SYSTEM_ARCHITECTURE_PROMPT = """You are a Principal Architect. Given the Feature Spec, define the system architecture.
+SYSTEM_ARCHITECTURE_PROMPT = """You are a Principal Architect. Given the Feature Spec and Preferred Architecture Pattern context, define the system architecture.
 CRITICAL INSTRUCTIONS FOR LLAMA 3:
 1. You MUST output a strictly valid JSON object matching the JSON schema below.
 2. For the highLevel architecture description, write a rich, multi-paragraph architectural brief describing design patterns, communication protocols, and technology integrations.
 3. For mermaidSystemFlow, output raw MermaidJS syntax ONLY. Do NOT wrap it in ```mermaid markdown blocks.
 4. Do NOT add any conversational intro/outro text.
+5. If the Preferred Architecture Pattern is Monolithic, use the "microservices" JSON key list to represent the internal logical Modules, Architectural Layers, or Sub-systems (e.g. Auth Module, Payment Layer) inside the single codebase. If it is Microservices, use it for separate API deployments.
+6. For mermaidSystemFlow, if Monolithic, model a single deployment node containing sub-system blocks calling each other in-process. If Microservices, model distributed nodes, gateways, independent DBs, and event buses.
 
 JSON SCHEMA:
 {
   "highLevel": "(string) Rich, comprehensive high-level architecture overview detailing patterns (e.g. MVC, microservices), communication (e.g. REST, gRPC), caching, and horizontal scalability plans",
-  "microservices": [{"name": "(string)", "responsibility": "(string) Detailed explanation of this service's core responsibilities and technical capabilities", "techStack": ["(string)"]}],
+  "microservices": [{"name": "(string) Name of Module/Layer if Monolithic, or separate Service if Microservices", "responsibility": "(string) Detailed explanation of this component's core responsibilities and technical capabilities", "techStack": ["(string)"]}],
   "mermaidSystemFlow": "(string) RAW MERMAID SYNTAX STARTING WITH 'graph TD'"
 }
 """

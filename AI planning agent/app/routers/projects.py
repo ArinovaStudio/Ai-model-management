@@ -246,6 +246,8 @@ async def update_projectInfo(
             update_data["scope"] = body.scope
         if body.constraints is not None:
             update_data["constraints"] = body.constraints
+        if body.project_type is not None:
+            update_data["projectType"] = body.project_type
         if body.metadata is not None:
             update_data["metadata"] = json.dumps(body.metadata)
 

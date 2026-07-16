@@ -51,6 +51,8 @@ async def generate_project_intelligence(project_id: str) -> dict | None:
             parts.append(f"Scope: {project_info.scope}")
         if project_info.constraints:
             parts.append(f"Constraints: {project_info.constraints}")
+        if project_info.projectType:
+            parts.append(f"Preferred Architecture Pattern: {project_info.projectType}")
         if project_info.startDate and project_info.deadline:
             duration = (project_info.deadline - project_info.startDate).days
             parts.append(

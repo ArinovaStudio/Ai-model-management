@@ -89,12 +89,14 @@ async def generate_wbs(
     info = project.projectInfo
     context = ""
     tech_stack = ", ".join([t.name for t in (project.technologies or [])]) if project.technologies else "None specified"
+    arch_type = "Monolithic"
     
     if info:
         desc = info.description or ""
         scope = info.scope or ""
         constraints = info.constraints or ""
-        context = f"Project: {info.name}\nDescription: {desc}\nScope: {scope}\nConstraints: {constraints}\nTechnology Stack: {tech_stack}\n"
+        arch_type = info.projectType or "Monolithic"
+        context = f"Project: {info.name}\nDescription: {desc}\nScope: {scope}\nConstraints: {constraints}\nTechnology Stack: {tech_stack}\nPreferred Architecture Pattern: {arch_type}\n"
 
     if getattr(project, "projectIntelligence", None):
         pi = project.projectIntelligence
@@ -128,9 +130,14 @@ async def generate_wbs(
             max_retries = 2
             for attempt in range(max_retries):
                 try:
+                    feature_payload = (
+                        f"Preferred Architecture Pattern: {arch_type}\n"
+                        f"Feature: {feature.title}: {feature.description}\n"
+                        "Note: If Monolithic Architecture, this feature is a local module inside a single codebase, not an independent network service. Treat integration tasks as in-process calls."
+                    )
                     wbs_data = await ollama_service.generate_combined_wbs(
                         context=context,
-                        feature=f"{feature.title}: {feature.description}"
+                        feature=feature_payload
                     )
                     if wbs_data and "milestones" in wbs_data and wbs_data["milestones"]:
                         return feature, wbs_data, False
