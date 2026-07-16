@@ -238,11 +238,26 @@
 
     </div>
 
+    <!-- Enhancement Modal -->
+    <div id="enhance-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div class="card" style="width: 500px; padding: 2rem; background: var(--bg-card); border-radius: var(--radius-lg); display: flex; flex-direction: column; gap: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+            <h3 style="margin-top: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-dusty-rose);">✨ Enhance Section</h3>
+            <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0;">Provide instructions to improve the active section (e.g., "make this timeline longer", "wrap this up quickly").</p>
+            <input type="hidden" id="enhance-section-type">
+            <input type="hidden" id="enhance-section-key">
+            <textarea id="enhance-instruction-input" class="form-input" rows="4" style="width: 100%; padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-sedate-gray-light); font-family: inherit;" placeholder="Enter natural-language instructions..."></textarea>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                <button class="btn btn-neutral" style="padding: 0.5rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-sedate-gray-light); background: transparent; cursor: pointer;" onclick="document.getElementById('enhance-modal').style.display='none'">Cancel</button>
+                <button class="btn btn-primary" id="enhance-submit-btn" style="padding: 0.5rem 1rem; border-radius: var(--radius-md); background: var(--color-dusty-rose); color: white; border: none; cursor: pointer;" onclick="workspace.submitEnhancement()">Enhance</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
     <script>
         mermaid.initialize({ startOnLoad: false, theme: 'default' });
     </script>
-    <script src="./js/api.js?v=46"></script>
-    <script src="./js/workspace.js?v=46"></script>
+    <script src="./js/api.js?v=48"></script>
+    <script src="./js/workspace.js?v=48"></script>
 </body>
 </html>

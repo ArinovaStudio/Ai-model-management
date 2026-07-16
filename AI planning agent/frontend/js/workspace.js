@@ -215,9 +215,11 @@ const workspace = {
     showPlanState() {
         document.getElementById('setup-state').style.display = 'none';
         document.getElementById('plan-state').style.display = 'block';
+        this.activeTab = 'wbs';
     },
 
     switchTab(tabName) {
+        this.activeTab = tabName;
         // Update tab styling
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         event.target.classList.add('active');
@@ -557,7 +559,13 @@ const workspace = {
             container.innerHTML = `
                 <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1.5rem;">
                     <div class="card">
-                        <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Product Vision & Strategy</h4>
+                        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem; margin-bottom:1.5rem;">
+                            <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Product Vision & Strategy</h4>
+                            <div style="display:flex; gap:0.25rem;">
+                                <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('intelligence', 'productStrategy')">✨ Enhance</button>
+                                <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('intelligence', 'productStrategy')">↩️ Revert</button>
+                            </div>
+                        </div>
                         
                         <div style="margin-bottom: 1.5rem;">
                             <h5 style="color:var(--color-sage); margin-bottom:0.5rem;">Product Definition</h5>
@@ -582,12 +590,24 @@ const workspace = {
 
                     <div>
                         <div class="card" style="margin-bottom:1.5rem;">
-                            <h4 style="margin-bottom: 1rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Core Scope (Must Have)</h4>
+                            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem; margin-bottom:1rem;">
+                                <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Core Scope (Must Have)</h4>
+                                <div style="display:flex; gap:0.25rem;">
+                                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('intelligence', 'featureSpecs')">✨ Enhance Specs</button>
+                                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('intelligence', 'featureSpecs')">↩️ Revert</button>
+                                </div>
+                            </div>
                             ${coreList || '<p style="color:var(--text-muted); font-size:0.85rem;">No core features defined</p>'}
                         </div>
                         
                         <div class="card">
-                            <h4 style="margin-bottom: 1rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Advanced Features</h4>
+                            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem; margin-bottom:1rem;">
+                                <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Advanced Features</h4>
+                                <div style="display:flex; gap:0.25rem;">
+                                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('intelligence', 'featureSpecs')">✨ Enhance Specs</button>
+                                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('intelligence', 'featureSpecs')">↩️ Revert</button>
+                                </div>
+                            </div>
                             ${advList || '<p style="color:var(--text-muted); font-size:0.85rem;">No advanced features defined</p>'}
                         </div>
                     </div>
@@ -715,9 +735,15 @@ const workspace = {
                         <!-- System Flow Diagram -->
                         ${arch.mermaidSystemFlow ? `
                             <div class="card" style="margin-bottom: 1.5rem;">
-                                <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">System Flow Diagram</h4>
+                                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem; margin-bottom:1.5rem;">
+                                    <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">System Flow Diagram</h4>
+                                    <div style="display:flex; gap:0.25rem;">
+                                        <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('intelligence', 'systemArchitecture')">✨ Enhance</button>
+                                        <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('intelligence', 'systemArchitecture')">↩️ Revert</button>
+                                    </div>
+                                </div>
                                 <div class="mermaid" style="display:flex; justify-content:center; padding:1rem; background:white; border-radius:var(--radius-md); overflow-x:auto;">
-                                    ${arch.mermaidSystemFlow}
+                                    ${this.cleanMermaidFlow(arch.mermaidSystemFlow)}
                                 </div>
                             </div>
                         ` : ''}
@@ -725,7 +751,13 @@ const workspace = {
                         <!-- Microservices Table -->
                         <div class="card" style="padding: 0; overflow: hidden; margin-bottom:1.5rem;">
                             <div style="padding: 1.5rem 1.5rem 0 1.5rem;">
-                                <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Microservices Stack</h4>
+                                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem; margin-bottom:1.5rem;">
+                                    <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Microservices Stack</h4>
+                                    <div style="display:flex; gap:0.25rem;">
+                                        <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('intelligence', 'systemArchitecture')">✨ Enhance</button>
+                                        <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('intelligence', 'systemArchitecture')">↩️ Revert</button>
+                                    </div>
+                                </div>
                             </div>
                             <table class="table" style="margin: 0;">
                                 <thead>
@@ -743,7 +775,13 @@ const workspace = {
 
                         <!-- Database Design -->
                         <div class="card">
-                            <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Database Design & Schemas</h4>
+                            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem; margin-bottom:1.5rem;">
+                                <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Database Design & Schemas</h4>
+                                <div style="display:flex; gap:0.25rem;">
+                                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('intelligence', 'databaseDesign')">✨ Enhance</button>
+                                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('intelligence', 'databaseDesign')">↩️ Revert</button>
+                                </div>
+                            </div>
                             ${dbHtml}
                         </div>
                     </div>
@@ -751,19 +789,37 @@ const workspace = {
                     <div>
                         <!-- High Level Architecture -->
                         <div class="card" style="margin-bottom: 1.5rem;">
-                            <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Architecture Overview</h4>
+                            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem; margin-bottom:1.5rem;">
+                                <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Architecture Overview</h4>
+                                <div style="display:flex; gap:0.25rem;">
+                                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('intelligence', 'systemArchitecture')">✨ Enhance</button>
+                                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('intelligence', 'systemArchitecture')">↩️ Revert</button>
+                                </div>
+                            </div>
                             <p style="font-size:0.95rem; line-height:1.5; font-weight:500; color:var(--color-sedate-gray);">${arch.highLevel || 'N/A'}</p>
                         </div>
 
                         <!-- API Design -->
                         <div class="card" style="margin-bottom:1.5rem;">
-                            <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">REST API Reference</h4>
+                            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem; margin-bottom:1.5rem;">
+                                <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">REST API Reference</h4>
+                                <div style="display:flex; gap:0.25rem;">
+                                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('intelligence', 'apiDesign')">✨ Enhance</button>
+                                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('intelligence', 'apiDesign')">↩️ Revert</button>
+                                </div>
+                            </div>
                             ${apiHtml}
                         </div>
 
                         <!-- Security -->
                         <div class="card">
-                            <h4 style="margin-bottom: 1.5rem; color: var(--color-sedate-gray); font-size:1.1rem; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem;">Security & Compliance</h4>
+                            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem; margin-bottom:1.5rem;">
+                                <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Security & Compliance</h4>
+                                <div style="display:flex; gap:0.25rem;">
+                                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('intelligence', 'security')">✨ Enhance</button>
+                                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('intelligence', 'security')">↩️ Revert</button>
+                                </div>
+                            </div>
                             ${secHtml}
                         </div>
                     </div>
@@ -873,6 +929,8 @@ const workspace = {
 
                 docs.forEach(doc => {
                     this.loadedDocs[doc.title] = doc.content;
+                    if (!this.docObjects) this.docObjects = {};
+                    this.docObjects[doc.title] = doc.id;
                     if (doc.content === "Generating...") {
                         stillCompiling = true;
                     }
@@ -973,7 +1031,19 @@ const workspace = {
             return;
         }
 
-        container.innerHTML = this.parseMarkdown(docContent);
+        const docId = this.docObjects ? this.docObjects[title] : '';
+        const headerHtml = `
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem; margin-bottom:1.5rem;">
+                <h3 style="margin:0;">${title}</h3>
+                ${docId ? `
+                <div style="display:flex; gap:0.25rem;">
+                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('documentation', '${docId}')">✨ Enhance Document</button>
+                    <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('documentation', '${docId}')">↩️ Revert</button>
+                </div>
+                ` : ''}
+            </div>
+        `;
+        container.innerHTML = headerHtml + this.parseMarkdown(docContent);
     },
 
     parseMarkdown(markdown) {
@@ -1052,6 +1122,166 @@ const workspace = {
         html = html.replace(/\n\n/g, '<p></p>');
 
         return html;
+    },
+
+    triggerCardEnhance(type, key) {
+        let currentContent = '';
+        if (type === 'intelligence') {
+            const data = this.projectIntelligence ? this.projectIntelligence[key] : null;
+            currentContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+        } else if (type === 'documentation') {
+            let title = 'Core Technical Blueprint';
+            if (this.docObjects) {
+                for (const t of Object.keys(this.docObjects)) {
+                    if (this.docObjects[t] === key) {
+                        title = t;
+                        break;
+                    }
+                }
+            }
+            currentContent = this.loadedDocs ? this.loadedDocs[title] : '';
+        }
+
+        document.getElementById('enhance-section-type').value = type;
+        document.getElementById('enhance-section-key').value = key;
+        document.getElementById('enhance-instruction-input').value = '';
+        document.getElementById('enhance-modal').style.display = 'flex';
+    },
+
+    async submitEnhancement() {
+        const sectionType = document.getElementById('enhance-section-type').value;
+        const sectionKey = document.getElementById('enhance-section-key').value;
+        const instruction = document.getElementById('enhance-instruction-input').value.trim();
+
+        if (!instruction) {
+            alert("Please enter editing instructions.");
+            return;
+        }
+
+        const submitBtn = document.getElementById('enhance-submit-btn');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Regenerating...';
+
+        try {
+            let currentContent = '';
+            if (sectionType === 'intelligence') {
+                const data = this.projectIntelligence ? this.projectIntelligence[sectionKey] : null;
+                currentContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+            } else if (sectionType === 'documentation') {
+                let title = 'Core Technical Blueprint';
+                if (this.docObjects) {
+                    for (const t of Object.keys(this.docObjects)) {
+                        if (this.docObjects[t] === sectionKey) {
+                            title = t;
+                            break;
+                        }
+                    }
+                }
+                currentContent = this.loadedDocs ? this.loadedDocs[title] : '';
+            }
+
+            const res = await window.api.enhanceSection(this.projectId, {
+                section_type: sectionType,
+                section_key: sectionKey,
+                user_instruction: instruction,
+                current_content: currentContent
+            });
+
+            if (res.status === 'success') {
+                alert("Section enhanced successfully!");
+                document.getElementById('enhance-modal').style.display = 'none';
+                
+                // Reload project intelligence block in memory to sync new values
+                if (sectionType === 'intelligence') {
+                    this.projectIntelligence = await window.api.getIntelligence(this.projectId);
+                }
+
+                // Force refresh current view
+                const tab = this.activeTab || 'wbs';
+                if (tab === 'strategy') {
+                    document.getElementById('strategy-container').innerHTML = '';
+                    await this.loadStrategy();
+                } else if (tab === 'architecture') {
+                    document.getElementById('architecture-container').innerHTML = '';
+                    await this.loadArchitecture();
+                } else if (tab === 'documentation') {
+                    await this.loadDocumentation();
+                }
+            } else {
+                alert("Failed to enhance section: " + res.detail);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error enhancing section: " + e.message);
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Enhance';
+        }
+    },
+
+    async triggerCardRevert(type, key) {
+        if (!confirm("Are you sure you want to revert this section to its original generated state? Any custom enhancements to this section will be discarded.")) {
+            return;
+        }
+
+        try {
+            const res = await window.api.revertSection(this.projectId, {
+                section_type: type,
+                section_key: key
+            });
+
+            if (res.status === 'success') {
+                alert("Section reverted to original state successfully!");
+                
+                // Reload project intelligence block in memory to sync restored values
+                if (type === 'intelligence') {
+                    this.projectIntelligence = await window.api.getIntelligence(this.projectId);
+                }
+
+                // Force refresh current view
+                const tab = this.activeTab || 'wbs';
+                if (tab === 'strategy') {
+                    document.getElementById('strategy-container').innerHTML = '';
+                    await this.loadStrategy();
+                } else if (tab === 'architecture') {
+                    document.getElementById('architecture-container').innerHTML = '';
+                    await this.loadArchitecture();
+                } else if (tab === 'documentation') {
+                    await this.loadDocumentation();
+                }
+            } else {
+                alert("Failed to revert section: " + res.message);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error reverting section: " + e.message);
+        }
+    },
+
+    cleanMermaidFlow(code) {
+        if (!code) return '';
+        let cleaned = code.trim();
+        
+        // Remove code fences
+        cleaned = cleaned.replace(/^```mermaid\s*/i, '');
+        cleaned = cleaned.replace(/```$/g, '');
+        cleaned = cleaned.replace(/```/g, '');
+        
+        // Split by lines and clean parentheses in labels
+        const lines = cleaned.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i];
+            
+            // Fix invalid Graphviz arrows -> to -->
+            line = line.replace(/([^-])->([^-])/g, '$1-->$2');
+            
+            // Check for labels like ID[Text (Parentheses)] and wrap the text in double quotes
+            line = line.replace(/(\w+)\s*\[([^"\n]*?\([^)\n]*?\)[^"\n]*?)\]/g, '$1["$2"]');
+            
+            lines[i] = line;
+        }
+        
+        return lines.join('\n').trim();
     }
 };
 

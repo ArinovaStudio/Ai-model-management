@@ -198,6 +198,26 @@ const api = {
         });
         if (!res.ok) throw new Error('Failed to send chat message');
         return res.json();
+    },
+
+    async enhanceSection(id, payload) {
+        const res = await fetch(`${API_BASE_URL}/${id}/enhance`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Failed to enhance section');
+        return res.json();
+    },
+
+    async revertSection(id, payload) {
+        const res = await fetch(`${API_BASE_URL}/${id}/enhance/revert`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Failed to revert section');
+        return res.json();
     }
 };
 

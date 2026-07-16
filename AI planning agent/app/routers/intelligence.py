@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.db.prisma import db
+from app.db.prisma import db, clear_project_cache
 from app.services.intelligence_engine import generate_project_intelligence
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,8 @@ async def generate_intelligence(project_id: str):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Project {project_id} not found",
             )
+        # Clear stale cache before generation
+        clear_project_cache(project_id)
         result = await generate_project_intelligence(project_id)
         if result is None:
             raise HTTPException(
