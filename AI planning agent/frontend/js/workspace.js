@@ -1206,6 +1206,14 @@ const workspace = {
                     await this.loadArchitecture();
                 } else if (tab === 'documentation') {
                     await this.loadDocumentation();
+                } else if (tab === 'wbs' || tab === 'schedule' || tab === 'resources') {
+                    document.getElementById('wbs-container').innerHTML = '';
+                    document.getElementById('schedule-container').innerHTML = '';
+                    const tbody = document.getElementById('resources-tbody');
+                    if (tbody) tbody.innerHTML = '';
+                    if (tab === 'wbs') await this.loadWBS();
+                    if (tab === 'schedule') await this.loadSchedule();
+                    if (tab === 'resources') await this.loadResources();
                 }
             } else {
                 alert("Failed to enhance section: " + res.detail);
@@ -1248,6 +1256,14 @@ const workspace = {
                     await this.loadArchitecture();
                 } else if (tab === 'documentation') {
                     await this.loadDocumentation();
+                } else if (tab === 'wbs' || tab === 'schedule' || tab === 'resources') {
+                    document.getElementById('wbs-container').innerHTML = '';
+                    document.getElementById('schedule-container').innerHTML = '';
+                    const tbody = document.getElementById('resources-tbody');
+                    if (tbody) tbody.innerHTML = '';
+                    if (tab === 'wbs') await this.loadWBS();
+                    if (tab === 'schedule') await this.loadSchedule();
+                    if (tab === 'resources') await this.loadResources();
                 }
             } else {
                 alert("Failed to revert section: " + res.message);

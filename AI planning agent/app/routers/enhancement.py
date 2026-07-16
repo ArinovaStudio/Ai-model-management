@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import datetime
 from typing import Any
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -31,26 +32,25 @@ def deep_merge(dict1: dict, dict2: dict) -> dict:
 
 
 async def ensure_backup(project_id: str, section_type: str, section_key: str):
-    backup_path = get_backup_path(project_id)
-    backup_data = {}
-    if os.path.exists(backup_path):
-        try:
-            with open(backup_path, "r", encoding="utf-8") as f:
-                backup_data = json.load(f)
-        except Exception:
-            backup_data = {}
-
-    if section_type not in backup_data:
-        backup_data[section_type] = {}
-
-    if section_key in backup_data[section_type]:
+    # Check if backup already exists in database
+    existing = await db.projectbackup.find_unique(
+        where={
+            "projectId_section_key": {
+                "projectId": project_id,
+                "section": section_type,
+                "key": section_key
+            }
+        }
+    )
+    if existing:
         return
 
     original_val = None
     if section_type == "intelligence":
         intel = await db.projectintelligence.find_unique(where={"projectId": project_id})
         if intel and hasattr(intel, section_key):
-            original_val = getattr(intel, section_key)
+            val = getattr(intel, section_key)
+            original_val = json.dumps(val, ensure_ascii=False) if val is not None else None
     elif section_type == "documentation":
         try:
             pdoc = await db.plandoc.find_unique(where={"id": section_key})
@@ -65,14 +65,76 @@ async def ensure_backup(project_id: str, section_type: str, section_key: str):
                     original_val = doc.content
             except Exception:
                 pass
+    elif section_type == "wbs":
+        tasks = await db.task.find_many(where={"projectId": project_id})
+        groups = await db.groupingtask.find_many(where={"projectId": project_id})
+        
+        tasks_list = []
+        for t in tasks:
+            t_dict = {
+                "id": t.id,
+                "title": t.title,
+                "description": t.description,
+                "assignee": t.assignee,
+                "assigneeAvatar": t.assigneeAvatar,
+                "priority": t.priority,
+                "dueDate": t.dueDate.isoformat() if t.dueDate else None,
+                "employeeId": t.employeeId,
+                "tags": t.tags,
+                "status": t.status,
+                "groupId": t.groupId,
+                "order": t.order,
+                "dependencies": t.dependencies,
+                "estimatedHours": t.estimatedHours,
+                "complexityScore": t.complexityScore,
+                "effortHours": t.effortHours,
+                "durationDays": t.durationDays,
+                "scheduledStart": t.scheduledStart.isoformat() if t.scheduledStart else None,
+                "scheduledEnd": t.scheduledEnd.isoformat() if t.scheduledEnd else None,
+            }
+            tasks_list.append(t_dict)
+            
+        groups_list = []
+        for g in groups:
+            g_dict = {
+                "id": g.id,
+                "name": g.name,
+                "totalEffortHours": g.totalEffortHours,
+                "description": g.description,
+                "projectId": g.projectId,
+            }
+            groups_list.append(g_dict)
+            
+        original_val = json.dumps({"tasks": tasks_list, "groups": groups_list}, ensure_ascii=False)
+        
+    elif section_type == "resources":
+        allocs = await db.resourceallocation.find_many(where={"projectId": project_id})
+        allocs_list = []
+        for a in allocs:
+            a_dict = {
+                "id": a.id,
+                "role": a.role,
+                "requiredCount": a.requiredCount,
+                "allocatedHours": a.allocatedHours,
+                "workloadPercentage": a.workloadPercentage,
+                "recommendedCount": a.recommendedCount,
+                "metadata": a.metadata
+            }
+            allocs_list.append(a_dict)
+        original_val = json.dumps(allocs_list, ensure_ascii=False)
 
     if original_val is not None:
-        backup_data[section_type][section_key] = original_val
         try:
-            with open(backup_path, "w", encoding="utf-8") as f:
-                json.dump(backup_data, f, ensure_ascii=False, indent=2)
+            await db.projectbackup.create(
+                data={
+                    "projectId": project_id,
+                    "section": section_type,
+                    "key": section_key,
+                    "content": original_val
+                }
+            )
         except Exception as e:
-            logger.error("Failed to write backup file: %s", e)
+            logger.error("Failed to write database backup: %s", e)
 
 
 class SectionEnhanceRequest(BaseModel):
@@ -284,27 +346,28 @@ async def revert_section(project_id: str, body: RevertSectionRequest):
                 detail=f"Project {project_id} not found",
             )
 
-        backup_path = get_backup_path(project_id)
-        if not os.path.exists(backup_path):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No backups found for this project.",
-            )
-
-        with open(backup_path, "r", encoding="utf-8") as f:
-            backup_data = json.load(f)
-
-        original_val = backup_data.get(body.section_type, {}).get(body.section_key)
-        if original_val is None:
+        backup = await db.projectbackup.find_unique(
+            where={
+                "projectId_section_key": {
+                    "projectId": project_id,
+                    "section": body.section_type,
+                    "key": body.section_key
+                }
+            }
+        )
+        if not backup or not backup.content:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No backup found for this specific section.",
             )
 
+        original_val = backup.content
+
         if body.section_type == "intelligence":
+            parsed_json = json.loads(original_val)
             await db.projectintelligence.update(
                 where={"projectId": project_id},
-                data={body.section_key: Json(original_val)}
+                data={body.section_key: Json(parsed_json)}
             )
         elif body.section_type == "documentation":
             try:
@@ -317,6 +380,86 @@ async def revert_section(project_id: str, body: RevertSectionRequest):
                     where={"id": body.section_key},
                     data={"content": original_val}
                 )
+        elif body.section_type == "wbs":
+            parsed = json.loads(original_val)
+            
+            # Delete tasks first to prevent foreign key issues
+            await db.task.delete_many(where={"projectId": project_id})
+            await db.groupingtask.delete_many(where={"projectId": project_id})
+            
+            # Restore Groups
+            for g in parsed.get("groups", []):
+                await db.groupingtask.create(
+                    data={
+                        "id": g["id"],
+                        "name": g["name"],
+                        "totalEffortHours": g.get("totalEffortHours", g.get("effort_hours", 0.0)),
+                        "description": g.get("description", ""),
+                        "projectId": project_id
+                    }
+                )
+            
+            # Restore Tasks
+            for t in parsed.get("tasks", []):
+                due_dt = datetime.fromisoformat(t["dueDate"]) if t["dueDate"] else None
+                start_dt = datetime.fromisoformat(t["scheduledStart"]) if t["scheduledStart"] else None
+                end_dt = datetime.fromisoformat(t["scheduledEnd"]) if t["scheduledEnd"] else None
+                
+                await db.task.create(
+                    data={
+                        "id": t["id"],
+                        "title": t["title"],
+                        "description": t["description"],
+                        "assignee": t["assignee"],
+                        "assigneeAvatar": t.get("assigneeAvatar"),
+                        "priority": t["priority"],
+                        "dueDate": due_dt,
+                        "employeeId": t.get("employeeId"),
+                        "tags": t.get("tags", []),
+                        "status": t["status"],
+                        "projectId": project_id,
+                        "groupId": t.get("groupId"),
+                        "order": t.get("order", 0),
+                        "dependencies": t.get("dependencies"),
+                        "estimatedHours": t.get("estimatedHours"),
+                        "complexityScore": t.get("complexityScore", 0.0),
+                        "effortHours": t.get("effortHours", 0.0),
+                        "durationDays": t.get("durationDays", 0.0),
+                        "scheduledStart": start_dt,
+                        "scheduledEnd": end_dt
+                    }
+                )
+                
+            # Trigger dynamic reschedule calculation after restoring tasks
+            try:
+                from app.services.schedule_engine import generate_schedule
+                await generate_schedule(project_id)
+            except Exception as se:
+                logger.error("Failed to automatically reschedule during WBS revert: %s", se)
+
+        elif body.section_type == "resources":
+            parsed = json.loads(original_val)
+            await db.resourceallocation.delete_many(where={"projectId": project_id})
+            for a in parsed:
+                await db.resourceallocation.create(
+                    data={
+                        "id": a["id"],
+                        "projectId": project_id,
+                        "role": a["role"],
+                        "requiredCount": a["requiredCount"],
+                        "allocatedHours": a["allocatedHours"],
+                        "workloadPercentage": a["workloadPercentage"],
+                        "recommendedCount": a["recommendedCount"],
+                        "metadata": a["metadata"]
+                    }
+                )
+                
+            # Trigger dynamic reschedule calculation after restoring resources
+            try:
+                from app.services.schedule_engine import generate_schedule
+                await generate_schedule(project_id)
+            except Exception as se:
+                logger.error("Failed to automatically reschedule during resources revert: %s", se)
 
         clear_project_cache(project_id)
         return {"status": "success", "message": "Section reverted to original state."}

@@ -141,11 +141,25 @@
 
                 <!-- WBS Tab -->
                 <div class="tab-pane active" id="tab-wbs">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; background: var(--bg-card); padding:1rem; border-radius:var(--radius-lg); border: 1px solid var(--color-sedate-gray-light);">
+                        <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Work Breakdown Structure</h4>
+                        <div style="display:flex; gap:0.25rem;">
+                            <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('wbs', 'tasks_and_groups')">✨ Enhance WBS</button>
+                            <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('wbs', 'tasks_and_groups')">↩️ Revert WBS</button>
+                        </div>
+                    </div>
                     <div id="wbs-container"></div>
                 </div>
 
                 <!-- Schedule Tab -->
                 <div class="tab-pane" id="tab-schedule">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; background: var(--bg-card); padding:1rem; border-radius:var(--radius-lg); border: 1px solid var(--color-sedate-gray-light);">
+                        <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Timeline & Sprints</h4>
+                        <div style="display:flex; gap:0.25rem;">
+                            <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('wbs', 'tasks_and_groups')">✨ Optimize Schedule</button>
+                            <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('wbs', 'tasks_and_groups')">↩️ Revert Schedule</button>
+                        </div>
+                    </div>
                     <div style="display: flex; gap: 2rem;">
                         <div id="schedule-container" style="flex: 2;"></div>
                         <div style="flex: 1; padding: 1.5rem; background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--color-sedate-gray-light); height: fit-content;">
@@ -157,6 +171,13 @@
 
                 <!-- Resources Tab -->
                 <div class="tab-pane" id="tab-resources">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; background: var(--bg-card); padding:1rem; border-radius:var(--radius-lg); border: 1px solid var(--color-sedate-gray-light);">
+                        <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Resource Allocations</h4>
+                        <div style="display:flex; gap:0.25rem;">
+                            <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('resources', 'allocations')">✨ Enhance Resources</button>
+                            <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('resources', 'allocations')">↩️ Revert Resources</button>
+                        </div>
+                    </div>
                     <div class="card" style="padding: 0; overflow: hidden;">
                         <table class="table">
                             <thead>

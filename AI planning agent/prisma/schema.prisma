@@ -999,3 +999,14 @@ model ChatMessage {
 
   @@index([projectId])
 }
+
+model ProjectBackup {
+  id        String   @id @default(uuid())
+  projectId String
+  section   String   // 'intelligence', 'wbs', 'schedule', 'resources', 'documentation'
+  key       String   // field name, doc ID, or identifier
+  content   String   // serialized JSON or raw text
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, section, key])
+}
