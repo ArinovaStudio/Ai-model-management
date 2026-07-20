@@ -233,7 +233,10 @@ async def list_wbs_tasks(
                 detail=f"Project {project_id} not found",
             )
 
-        where: dict[str, Any] = {"projectId": project_id, "featureRequestId": {"not": None}}
+        has_fr = await db.featurerequest.count(where={"projectId": project_id}) > 0
+        where: dict[str, Any] = {"projectId": project_id}
+        if has_fr:
+            where["featureRequestId"] = {"not": None}
         if group_id:
             where["groupId"] = group_id
         if status_filter:
@@ -331,9 +334,11 @@ async def clear_wbs(project_id: str) -> None:
                 detail=f"Project {project_id} not found",
             )
 
-        await db.task.delete_many(
-            where={"projectId": project_id, "featureRequestId": {"not": None}},
-        )
+        has_fr = await db.featurerequest.count(where={"projectId": project_id}) > 0
+        delete_where = {"projectId": project_id}
+        if has_fr:
+            delete_where["featureRequestId"] = {"not": None}
+        await db.task.delete_many(where=delete_where)
         await db.groupingtask.delete_many(where={"projectId": project_id})
         logger.info("Cleared WBS for project %s", project_id)
 

@@ -755,7 +755,7 @@ const workspace = {
                         <div class="card" style="padding: 0; overflow: hidden; margin-bottom:1.5rem;">
                             <div style="padding: 1.5rem 1.5rem 0 1.5rem;">
                                 <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--color-sedate-gray-light); padding-bottom:0.5rem; margin-bottom:1.5rem;">
-                                    <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Microservices Stack</h4>
+                                    <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Functionality stack</h4>
                                     <div style="display:flex; gap:0.25rem;">
                                         <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('intelligence', 'systemArchitecture')">✨ Enhance</button>
                                         <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('intelligence', 'systemArchitecture')">↩️ Revert</button>
@@ -765,13 +765,13 @@ const workspace = {
                             <table class="table" style="margin: 0;">
                                 <thead>
                                     <tr>
-                                        <th>Service</th>
+                                        <th>Component / Service</th>
                                         <th>Tech Stack</th>
                                         <th>Responsibility</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${serviceRows || '<tr><td colspan="3">No microservices defined</td></tr>'}
+                                    ${serviceRows || '<tr><td colspan="3">No sub-systems or services defined</td></tr>'}
                                 </tbody>
                             </table>
                         </div>
@@ -1181,6 +1181,12 @@ const workspace = {
                     }
                 }
                 currentContent = this.loadedDocs ? this.loadedDocs[title] : '';
+            } else if (sectionType === 'wbs') {
+                const res = await window.api.getWBSTasks(this.projectId);
+                currentContent = JSON.stringify(res, null, 2);
+            } else if (sectionType === 'resources') {
+                const res = await window.api.getResourcePlan(this.projectId);
+                currentContent = JSON.stringify(res.allocations, null, 2);
             }
 
             const res = await window.api.enhanceSection(this.projectId, {
@@ -1286,16 +1292,23 @@ const workspace = {
         cleaned = cleaned.replace(/```$/g, '');
         cleaned = cleaned.replace(/```/g, '');
         
-        // Split by lines and clean parentheses in labels
+        // Split by lines
         const lines = cleaned.split('\n');
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i];
             
-            // Fix invalid Graphviz arrows -> to -->
+            // Fix invalid Graphviz/Sequence arrows e.g. ->> to --> or -> to -->
+            line = line.replace(/->>/g, '-->');
             line = line.replace(/([^-])->([^-])/g, '$1-->$2');
             
-            // Check for labels like ID[Text (Parentheses)] and wrap the text in double quotes
-            line = line.replace(/(\w+)\s*\[([^"\n]*?\([^)\n]*?\)[^"\n]*?)\]/g, '$1["$2"]');
+            // Fix invalid trailing > in label bars e.g. |RESTful API|> to |RESTful API|
+            line = line.replace(/\|([^|]+)\|\s*>/g, '|$1|');
+            
+            // Wrap all unquoted brackets [Label] in double quotes to escape special characters like ->
+            line = line.replace(/(\w+)\s*\[([^"\[\]\n]+?)\]/g, '$1["$2"]');
+            
+            // Wrap all unquoted parentheses (Label) in double quotes
+            line = line.replace(/(\w+)\s*\(([^"\(\)\n]+?)\)/g, '$1("$2")');
             
             lines[i] = line;
         }

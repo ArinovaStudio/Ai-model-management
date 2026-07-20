@@ -54,9 +54,11 @@ async def generate_wbs(
 ) -> dict[str, Any]:
     if reindex:
         clear_project_cache(project_id)
-        await db.task.delete_many(
-            where={"projectId": project_id, "featureRequestId": {"not": None}},
-        )
+        has_fr = await db.featurerequest.count(where={"projectId": project_id}) > 0
+        delete_where = {"projectId": project_id}
+        if has_fr:
+            delete_where["featureRequestId"] = {"not": None}
+        await db.task.delete_many(where=delete_where)
         await db.groupingtask.delete_many(where={"projectId": project_id})
 
     project = get_cached_project(project_id)
