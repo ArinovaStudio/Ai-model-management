@@ -12,6 +12,51 @@ from app.services.estimation_engine import _compute_task_complexity, _compute_ef
 
 logger = logging.getLogger(__name__)
 
+MONOLITHIC_WBS_PROMPT = """You are an Expert Project Architect and Technical Project Manager.
+Given the global project context, technologies, and a list of specific feature requests, generate a complete, production-ready, Milestone-Driven WBS plan for the entire project.
+
+CRITICAL ARCHITECTURE DIRECTIVE (MONOLITHIC DELIVERY):
+- The project is a Monolithic codebase. Engineering work happens horizontally in lifecycle phases, NOT in vertical feature silos.
+- Boilerplate tasks (e.g. setting up postgres database, base repository initialization, configuring monolithic structure) MUST only occur ONCE globally under "Shared Infrastructure & Core Baseline" at Milestone 1. Do NOT duplicate these tasks across features.
+- All modules run in the same process and use the same database.
+
+CRITICAL DIRECTIVES FOR TASK GRANULARITY:
+- Do NOT generate generic tasks matching feature titles exactly (e.g. do NOT write a task named "Faculty Management" or "Student Registration").
+- You MUST create multiple granular, technical, actionable tasks for each feature request across the different Milestones based on the provided "Database Tables and Entities Schema" and "REST API Routes and Endpoint Specifications".
+- In Milestone 1, create specific database migration and table creation tasks (e.g., "Create Faculty and Department Tables", "Set up Student registration tables").
+- In Milestone 2, create specific backend API endpoint and business logic tasks (e.g., "Implement Faculty profile API routes", "Build Student enrollment validation routes").
+- In Milestone 3, create specific frontend integration tasks (e.g., "Develop Student Registration Form view", "Integrate Course Enrollment front-end components").
+- Each milestone must contain detailed technical sub-tasks for the features, not just a single high-level feature placeholder task.
+
+Generate tasks organized into exactly 5 logical, sequential Milestone phases:
+- Milestone 1: Core Foundation & Context Baseline (Shared infrastructure setup, database schema setup, base layout)
+- Milestone 2: Functional Feature Engineering & System Core (Business logic, API routes, module controllers)
+- Milestone 3: Interface Integration & Frontend Synchronization (UI views, API integration, client-side modules)
+- Milestone 4: Verification, Hardening, & Risk Mitigation (Testing, QA, profiling)
+- Milestone 5: Deployment Go-Live & Pipeline Sign-off (CI/CD, production release)
+
+For each task you generate, you MUST attribute it to the corresponding feature request ID from the provided list. If the task is cross-cutting or shared infrastructure, attribute it to "shared".
+
+Return ONLY a valid JSON object matching this schema exactly. Do not wrap in markdown blocks, add trailing commas, or include conversational text:
+{
+  "milestones": [
+    {
+      "title": "Milestone Phase Title",
+      "description": "Milestone Description detailing phase goals",
+      "tasks": [
+        {
+          "title": "Granular, context-specific task title",
+          "description": "Explicit step-by-step technical execution plan for this task",
+          "estimated_hours": 4.5,
+          "feature_id": "feature-request-uuid-value-here or 'shared'",
+          "depends_on": ["Title of previous task this blocks on", "Can be empty [] for independent tasks"]
+        }
+      ]
+    }
+  ]
+}
+"""
+
 WBS_TASK_TEMPLATES: list[dict[str, Any]] = [
     {"title": "Research & Analysis", "order": 1, "estimated_hours": 4.0},
     {"title": "Design & Architecture", "order": 2, "estimated_hours": 8.0},
@@ -161,6 +206,17 @@ async def generate_wbs(
 
     logger.info("Starting concurrent WBS LLM extraction for %d features...", len(features))
     wbs_results = await asyncio.gather(*(get_feature_wbs(f) for f in features))
+
+    is_monolith = arch_type.lower() in ["monolith", "monolithic"]
+    if is_monolith:
+        return await _generate_wbs_monolithic(
+            project_id=project_id,
+            project=project,
+            features=features,
+            wbs_results=wbs_results,
+            deadline=deadline,
+            productive_hours_per_day=productive_hours_per_day
+        )
 
     # --- IN-MEMORY COMPILATION AND ID MAPPING ---
     group_records = []
@@ -365,6 +421,397 @@ async def generate_wbs(
 
     logger.info(
         "WBS generated for project %s: %d groups, %d tasks",
+        project_id,
+        len(stored_groups),
+        len(task_records),
+    )
+
+    return {
+        "groups": stored_groups,
+        "total_groups": len(stored_groups),
+        "total_tasks": len(task_records),
+    }
+
+
+def _extract_clean_title(title: str) -> tuple[str, str]:
+    import re
+    match = re.match(r"^(\[[^\]]+\]\s*)(.*)$", title)
+    prefix, core = ("", title)
+    if match:
+        prefix, core = match.group(1), match.group(2)
+    
+    # Strip relative task numbering prefixes (e.g. "Task 1.1:", "Task 2 -", "Task 1.2")
+    core = re.sub(r"^task\s+[0-9a-zA-Z]+(?:\.[0-9a-zA-Z]+)*\s*[:\-\s]\s*", "", core, flags=re.IGNORECASE)
+    
+    core = core.strip()
+    if core:
+        core = core[0].upper() + core[1:]
+        
+    return prefix, core
+
+
+def _generate_monolithic_fallback(features: list[Any], project_id: str) -> dict[str, Any]:
+    milestones = [
+        {
+            "title": "Milestone 1: Core Foundation & Context Baseline",
+            "description": "Initialize database schema and monolithic codebase setup",
+            "tasks": [
+                {"title": "Initialize Database & Monolithic Codebase", "description": "Set up PostgreSQL database and directory structure.", "estimated_hours": 8.0, "feature_id": "shared"}
+            ]
+        },
+        {
+            "title": "Milestone 2: Functional Feature Engineering & System Core",
+            "description": "Implement core backend models, business logic and APIs for features",
+            "tasks": []
+        },
+        {
+            "title": "Milestone 3: Interface Integration & Frontend Synchronization",
+            "description": "Develop and integrate UI screens and APIs",
+            "tasks": []
+        },
+        {
+            "title": "Milestone 4: Verification, Hardening, & Risk Mitigation",
+            "description": "Testing, QA, and validation",
+            "tasks": [
+                {"title": "Unified QA Verification & E2E Testing", "description": "Execute comprehensive end-to-end integration testing.", "estimated_hours": 12.0, "feature_id": "shared"}
+            ]
+        },
+        {
+            "title": "Milestone 5: Deployment Go-Live & Pipeline Sign-off",
+            "description": "Unified production release",
+            "tasks": [
+                {"title": "Monolithic Production Deployment", "description": "Configure unified CI/CD release pipeline.", "estimated_hours": 6.0, "feature_id": "shared"}
+            ]
+        }
+    ]
+
+    for f in features:
+        milestones[1]["tasks"].append({
+            "title": f"Implement Core Logic for {f.title}",
+            "description": f"Build database mappings, business logic, and API endpoints for {f.title}.",
+            "estimated_hours": 16.0,
+            "feature_id": f.id
+        })
+        milestones[2]["tasks"].append({
+            "title": f"Build UI components and Integrate {f.title}",
+            "description": f"Develop frontend views and hook them up to the API endpoints for {f.title}.",
+            "estimated_hours": 12.0,
+            "feature_id": f.id
+        })
+
+    return {"milestones": milestones}
+
+
+def is_generic_boilerplate(title: str, feature_title: str) -> bool:
+    title_lower = title.lower()
+    feat_lower = feature_title.lower()
+    
+    # If the title mentions specific feature keywords, it is not generic boilerplate
+    # Split feature title into words, filtering out short words
+    feat_words = [w for w in re.findall(r"[a-z0-9]+", feat_lower) if len(w) > 3]
+    has_feature_context = any(w in title_lower for w in feat_words)
+    
+    if has_feature_context:
+        return False
+        
+    # Check for boilerplate indicators
+    boilerplate_words = ["initialize", "setup", "boilerplate", "ci/cd", "deployment", "deploy", "testing", "qa", "e2e", "workflow"]
+    return any(w in title_lower for w in boilerplate_words)
+
+
+async def _generate_wbs_monolithic(
+    project_id: str,
+    project: Any,
+    features: list[Any],
+    wbs_results: list[tuple[Any, Optional[dict[str, Any]], bool]],
+    deadline: Optional[datetime],
+    productive_hours_per_day: float = 6.0
+) -> dict[str, Any]:
+    global_milestones = [
+        {
+            "title": "Milestone 1: Core Foundation & Context Baseline",
+            "description": "Initialize database schema, core models, and monolithic codebase baseline.",
+            "tasks": [
+                {
+                    "title": "Initialize PostgreSQL Database & Monolithic Codebase",
+                    "description": "Set up the shared PostgreSQL database instance, configure migrations baseline, and initialize the monolithic repository directory structure.",
+                    "estimated_hours": 8.0,
+                    "feature_id": "shared",
+                    "depends_on": []
+                }
+            ]
+        },
+        {
+            "title": "Milestone 2: Functional Feature Engineering & System Core",
+            "description": "Implement business logic, API routes, controllers, and core backend modules.",
+            "tasks": []
+        },
+        {
+            "title": "Milestone 3: Interface Integration & Frontend Synchronization",
+            "description": "Develop UI screens, integrate API endpoints, and synchronize client-side components.",
+            "tasks": []
+        },
+        {
+            "title": "Milestone 4: Verification, Hardening, & Risk Mitigation",
+            "description": "QA verification, end-to-end integration testing, and bug fixing.",
+            "tasks": [
+                {
+                    "title": "Unified QA Verification & End-to-End Testing",
+                    "description": "Execute comprehensive testing suite, including unit tests, API integration tests, and UAT verification.",
+                    "estimated_hours": 12.0,
+                    "feature_id": "shared",
+                    "depends_on": []
+                }
+            ]
+        },
+        {
+            "title": "Milestone 5: Deployment Go-Live & Pipeline Sign-off",
+            "description": "Final release preparation, CI/CD pipeline setup, and production deployment.",
+            "tasks": [
+                {
+                    "title": "Monolithic Production Deployment",
+                    "description": "Configure CI/CD release pipeline and deploy the monolithic codebase package to the target server.",
+                    "estimated_hours": 6.0,
+                    "feature_id": "shared",
+                    "depends_on": []
+                }
+            ]
+        }
+    ]
+
+    def get_milestone_index(title_str: str, default_idx: int) -> int:
+        t_lower = title_str.lower()
+        if "milestone 1" in t_lower or "foundation" in t_lower or "baseline" in t_lower:
+            return 0
+        if "milestone 2" in t_lower or "feature engineering" in t_lower or "system core" in t_lower:
+            return 1
+        if "milestone 3" in t_lower or "integration" in t_lower or "synchronization" in t_lower:
+            return 2
+        if "milestone 4" in t_lower or "verification" in t_lower or "hardening" in t_lower or "testing" in t_lower or "qa" in t_lower:
+            return 3
+        if "milestone 5" in t_lower or "deployment" in t_lower or "go-live" in t_lower or "pipeline" in t_lower:
+            return 4
+        return min(max(default_idx, 0), 4)
+
+    # Process results from concurrent LLM queries
+    for feature, wbs_data, is_failed in wbs_results:
+        # If failed, generate basic fallback tasks for this feature
+        if is_failed or not wbs_data:
+            # Add backend task to Milestone 2
+            global_milestones[1]["tasks"].append({
+                "title": f"Implement Core Logic for {feature.title}",
+                "description": f"Build database mappings, business logic, and API endpoints for {feature.title}.",
+                "estimated_hours": 16.0,
+                "feature_id": feature.id,
+                "depends_on": []
+            })
+            # Add frontend task to Milestone 3
+            global_milestones[2]["tasks"].append({
+                "title": f"Build UI components and Integrate {feature.title}",
+                "description": f"Develop frontend views and hook them up to the API endpoints for {feature.title}.",
+                "estimated_hours": 12.0,
+                "feature_id": feature.id,
+                "depends_on": []
+            })
+            continue
+
+        # Extract milestones list
+        milestones_list = []
+        if isinstance(wbs_data, dict):
+            if "milestones" in wbs_data:
+                milestones_list = wbs_data["milestones"]
+            elif "milestone" in wbs_data:
+                milestones_list = wbs_data["milestone"]
+            else:
+                for val in wbs_data.values():
+                    if isinstance(val, list):
+                        milestones_list = val
+                        break
+        elif isinstance(wbs_data, list):
+            milestones_list = wbs_data
+
+        if not isinstance(milestones_list, list):
+            milestones_list = []
+
+        for default_idx, milestone in enumerate(milestones_list):
+            if not isinstance(milestone, dict):
+                continue
+            
+            m_title = milestone.get("title") or f"Milestone {default_idx + 1}"
+            m_idx = get_milestone_index(m_title, default_idx)
+
+            m_tasks = milestone.get("tasks") or milestone.get("task") or []
+            if not isinstance(m_tasks, list):
+                m_tasks = [m_tasks]
+
+            for t in m_tasks:
+                if not isinstance(t, dict):
+                    continue
+                t_title = t.get("title") or "Unnamed Task"
+                t_desc = t.get("description") or "No description"
+                t_hours = 4.0
+                try:
+                    t_hours = float(t.get("estimated_hours") or t.get("hours") or 4.0)
+                except Exception:
+                    pass
+                t_deps = t.get("depends_on") or t.get("dependencies") or []
+                if not isinstance(t_deps, list):
+                    t_deps = []
+
+                # Monolithic Pruning Rule 1: Skip any feature-specific deployment/docker/containerization tasks in Milestone 5
+                t_title_lower = t_title.lower()
+                if m_idx == 4 and any(w in t_title_lower for w in ["deploy", "docker", "container", "nginx", "apache", "provision"]):
+                    continue
+
+                # Monolithic Pruning Rule 2: Skip generic "setup monolithic architecture" or "integrate into monolithic architecture" in Milestone 1
+                if m_idx == 0 and any(w in t_title_lower for w in ["monolithic architecture", "in-process calls", "integrate student registration", "integrate the student registration"]):
+                    continue
+
+                # Skip/de-duplicate generic boilerplate setup tasks
+                if is_generic_boilerplate(t_title, feature.title):
+                    continue
+
+                global_milestones[m_idx]["tasks"].append({
+                    "title": t_title,
+                    "description": t_desc,
+                    "estimated_hours": t_hours,
+                    "feature_id": feature.id,
+                    "depends_on": t_deps
+                })
+
+    # Database insertions
+    group_records = []
+    task_records = []
+    title_to_id = {}
+    all_task_deps_meta = []
+    global_task_index = 0
+
+    for m_idx, milestone in enumerate(global_milestones):
+        m_title = milestone["title"]
+        m_desc = milestone["description"]
+        
+        group_id = str(uuid.uuid4())
+        m_tasks = milestone["tasks"]
+        group_efforts = []
+        group_durations = []
+        group_complexities = []
+        feature_ids_in_milestone = set()
+
+        for t_idx, t in enumerate(m_tasks):
+            t_title = t["title"]
+            t_desc = t["description"]
+            t_hours = t["estimated_hours"]
+            t_feature_id = t["feature_id"]
+            
+            priority = "medium"
+            resolved_feature_id = None
+            prefix = "[Shared Infrastructure & Core Baseline] "
+
+            if t_feature_id and t_feature_id != "shared":
+                # Find matching feature request
+                matched_f = next((f for f in features if f.id == t_feature_id), None)
+                if matched_f:
+                    resolved_feature_id = matched_f.id
+                    priority = matched_f.priority or "medium"
+                    prefix = f"[Feature: {matched_f.title}] "
+                    feature_ids_in_milestone.add(matched_f.id)
+            
+            _, clean_title = _extract_clean_title(t_title)
+            final_title = f"{prefix}{clean_title}"[:255]
+
+            deps_list = t["depends_on"]
+            complexity = _compute_task_complexity(
+                title=final_title,
+                description=t_desc,
+                dependency_count=len(deps_list)
+            )
+            effort, duration = _compute_effort(
+                t_hours,
+                complexity,
+                productive_hours_per_day
+            )
+
+            group_efforts.append(effort)
+            group_durations.append(duration)
+            group_complexities.append(complexity)
+
+            global_task_index += 1
+            task_id = str(uuid.uuid4())
+            
+            title_to_id[t_title.lower().strip()] = task_id
+            title_to_id[clean_title.lower().strip()] = task_id
+
+            due = _compute_due_date(deadline, m_idx + 1, len(global_milestones))
+
+            t_record = {
+                "id": task_id,
+                "title": final_title,
+                "description": t_desc,
+                "assignee": "unassigned",
+                "priority": priority,
+                "dueDate": due,
+                "status": "pending",
+                "dependencies": json.dumps([]),
+                "projectId": project_id,
+                "featureRequestId": resolved_feature_id,
+                "groupId": group_id,
+                "order": t_idx + 1,
+                "estimatedHours": float(t_hours),
+                "complexityScore": float(complexity),
+                "effortHours": float(effort),
+                "durationDays": float(duration),
+            }
+            task_records.append(t_record)
+            all_task_deps_meta.append((t_record, deps_list))
+
+        total_effort = sum(group_efforts)
+        total_duration = sum(group_durations)
+        avg_complexity = sum(group_complexities) / len(group_complexities) if group_complexities else 0.0
+
+        group_records.append({
+            "id": group_id,
+            "name": m_title,
+            "projectId": project_id,
+            "description": m_desc,
+            "order": m_idx,
+            "featureIds": json.dumps(list(feature_ids_in_milestone)),
+            "totalEffortHours": round(total_effort, 2),
+            "totalDurationDays": round(total_duration, 2),
+            "avgComplexityScore": round(avg_complexity, 2),
+        })
+
+    # Dependencies resolution
+    for task_record, depends_on_list in all_task_deps_meta:
+        dep_ids = []
+        for dep_title in depends_on_list:
+            matched_id = None
+            dt_lower = dep_title.lower().strip()
+            if dt_lower in title_to_id:
+                matched_id = title_to_id[dt_lower]
+            else:
+                for raw_t, tid in title_to_id.items():
+                    if dt_lower in raw_t or raw_t in dt_lower:
+                        matched_id = tid
+                        break
+            if matched_id and matched_id != task_record["id"]:
+                dep_ids.append(matched_id)
+        if dep_ids:
+            task_record["dependencies"] = json.dumps(dep_ids)
+
+    logger.info("Executing batched database writes for Monolithic WBS groupings and tasks...")
+    if group_records:
+        await db.groupingtask.create_many(data=group_records)
+    if task_records:
+        await db.task.create_many(data=task_records)
+
+    stored_groups = await db.groupingtask.find_many(
+        where={"projectId": project_id},
+        include={"tasks": True},
+        order={"order": "asc"}
+    )
+
+    logger.info(
+        "Monolithic WBS generated for project %s: %d groups, %d tasks",
         project_id,
         len(stored_groups),
         len(task_records),

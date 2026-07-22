@@ -1305,10 +1305,22 @@ const workspace = {
             line = line.replace(/\|([^|]+)\|\s*>/g, '|$1|');
             
             // Wrap all unquoted brackets [Label] in double quotes to escape special characters like ->
-            line = line.replace(/(\w+)\s*\[([^"\[\]\n]+?)\]/g, '$1["$2"]');
+            // Support hyphenated node IDs (e.g. web-server) using [a-zA-Z0-9_-]
+            line = line.replace(/([a-zA-Z0-9_-]+)\s*\[([^"\[\]\n]+?)\]/g, '$1["$2"]');
             
             // Wrap all unquoted parentheses (Label) in double quotes
-            line = line.replace(/(\w+)\s*\(([^"\(\)\n]+?)\)/g, '$1("$2")');
+            line = line.replace(/([a-zA-Z0-9_-]+)\s*\(([^"\(\)\n]+?)\)/g, '$1("$2")');
+            
+            // Fix unquoted subgraph titles with spaces/special characters
+            if (line.trim().startsWith("subgraph ")) {
+                let parts = line.trim().split(/\s+/);
+                if (parts.length > 2) {
+                    let rest = parts.slice(1).join(" ");
+                    if (!rest.startsWith('"') && !rest.endsWith('"')) {
+                        line = `subgraph "${rest}"`;
+                    }
+                }
+            }
             
             lines[i] = line;
         }
