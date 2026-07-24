@@ -233,10 +233,7 @@ async def list_wbs_tasks(
                 detail=f"Project {project_id} not found",
             )
 
-        has_fr = await db.featurerequest.count(where={"projectId": project_id}) > 0
         where: dict[str, Any] = {"projectId": project_id}
-        if has_fr:
-            where["featureRequestId"] = {"not": None}
         if group_id:
             where["groupId"] = group_id
         if status_filter:

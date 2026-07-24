@@ -29,11 +29,11 @@ CRITICAL DIRECTIVES FOR TASK GRANULARITY:
 - Each milestone must contain detailed technical sub-tasks for the features, not just a single high-level feature placeholder task.
 
 Generate tasks organized into exactly 5 logical, sequential Milestone phases:
-- Milestone 1: Core Foundation & Context Baseline (Shared infrastructure setup, database schema setup, base layout)
-- Milestone 2: Functional Feature Engineering & System Core (Business logic, API routes, module controllers)
-- Milestone 3: Interface Integration & Frontend Synchronization (UI views, API integration, client-side modules)
-- Milestone 4: Verification, Hardening, & Risk Mitigation (Testing, QA, profiling)
-- Milestone 5: Deployment Go-Live & Pipeline Sign-off (CI/CD, production release)
+- Milestone 1: Infrastructure & Database Setup (Shared infrastructure setup, database schema setup, base layout)
+- Milestone 2: Backend API & Core Logic (Business logic, API routes, module controllers)
+- Milestone 3: Frontend UI & Integration (UI views, API integration, client-side modules)
+- Milestone 4: QA Verification & Testing (Testing, QA, profiling)
+- Milestone 5: Deployment & Go-Live (CI/CD, production release)
 
 For each task you generate, you MUST attribute it to the corresponding feature request ID from the provided list. If the task is cross-cutting or shared infrastructure, attribute it to "shared".
 
@@ -529,7 +529,7 @@ async def _generate_wbs_monolithic(
 ) -> dict[str, Any]:
     global_milestones = [
         {
-            "title": "Milestone 1: Core Foundation & Context Baseline",
+            "title": "Milestone 1: Infrastructure & Database Setup",
             "description": "Initialize database schema, core models, and monolithic codebase baseline.",
             "tasks": [
                 {
@@ -542,17 +542,17 @@ async def _generate_wbs_monolithic(
             ]
         },
         {
-            "title": "Milestone 2: Functional Feature Engineering & System Core",
+            "title": "Milestone 2: Backend API & Core Logic",
             "description": "Implement business logic, API routes, controllers, and core backend modules.",
             "tasks": []
         },
         {
-            "title": "Milestone 3: Interface Integration & Frontend Synchronization",
+            "title": "Milestone 3: Frontend UI & Integration",
             "description": "Develop UI screens, integrate API endpoints, and synchronize client-side components.",
             "tasks": []
         },
         {
-            "title": "Milestone 4: Verification, Hardening, & Risk Mitigation",
+            "title": "Milestone 4: QA Verification & Testing",
             "description": "QA verification, end-to-end integration testing, and bug fixing.",
             "tasks": [
                 {
@@ -565,7 +565,7 @@ async def _generate_wbs_monolithic(
             ]
         },
         {
-            "title": "Milestone 5: Deployment Go-Live & Pipeline Sign-off",
+            "title": "Milestone 5: Deployment & Go-Live",
             "description": "Final release preparation, CI/CD pipeline setup, and production deployment.",
             "tasks": [
                 {
@@ -581,20 +581,24 @@ async def _generate_wbs_monolithic(
 
     def get_milestone_index(title_str: str, default_idx: int) -> int:
         t_lower = title_str.lower()
-        if "milestone 1" in t_lower or "foundation" in t_lower or "baseline" in t_lower:
+        if "milestone 1" in t_lower or "infrastructure" in t_lower or "database" in t_lower or "foundation" in t_lower or "baseline" in t_lower:
             return 0
-        if "milestone 2" in t_lower or "feature engineering" in t_lower or "system core" in t_lower:
+        if "milestone 2" in t_lower or "backend" in t_lower or "api" in t_lower or "core logic" in t_lower or "feature engineering" in t_lower or "system core" in t_lower:
             return 1
-        if "milestone 3" in t_lower or "integration" in t_lower or "synchronization" in t_lower:
+        if "milestone 3" in t_lower or "frontend" in t_lower or "ui" in t_lower or "integration" in t_lower or "synchronization" in t_lower:
             return 2
-        if "milestone 4" in t_lower or "verification" in t_lower or "hardening" in t_lower or "testing" in t_lower or "qa" in t_lower:
+        if "milestone 4" in t_lower or "qa" in t_lower or "testing" in t_lower or "verification" in t_lower or "hardening" in t_lower:
             return 3
         if "milestone 5" in t_lower or "deployment" in t_lower or "go-live" in t_lower or "pipeline" in t_lower:
             return 4
         return min(max(default_idx, 0), 4)
 
     # Process results from concurrent LLM queries
+    seen_feature_backend_tasks = {}
     for feature, wbs_data, is_failed in wbs_results:
+        if feature.id not in seen_feature_backend_tasks:
+            seen_feature_backend_tasks[feature.id] = set()
+
         # If failed, generate basic fallback tasks for this feature
         if is_failed or not wbs_data:
             # Add backend task to Milestone 2
@@ -624,9 +628,9 @@ async def _generate_wbs_monolithic(
                 milestones_list = wbs_data["milestone"]
             else:
                 for val in wbs_data.values():
-                    if isinstance(val, list):
-                        milestones_list = val
-                        break
+                     if isinstance(val, list):
+                         milestones_list = val
+                         break
         elif isinstance(wbs_data, list):
             milestones_list = wbs_data
 
@@ -660,16 +664,33 @@ async def _generate_wbs_monolithic(
 
                 # Monolithic Pruning Rule 1: Skip any feature-specific deployment/docker/containerization tasks in Milestone 5
                 t_title_lower = t_title.lower()
-                if m_idx == 4 and any(w in t_title_lower for w in ["deploy", "docker", "container", "nginx", "apache", "provision"]):
+                if m_idx == 4 and any(w in t_title_lower for w in ["deploy", "docker", "container", "nginx", "apache", "provision", "sign off", "sign-off", "pipeline sign-off", "pipeline sign off", "release preparation"]):
                     continue
 
                 # Monolithic Pruning Rule 2: Skip generic "setup monolithic architecture" or "integrate into monolithic architecture" in Milestone 1
-                if m_idx == 0 and any(w in t_title_lower for w in ["monolithic architecture", "in-process calls", "integrate student registration", "integrate the student registration"]):
+                if m_idx == 0 and any(w in t_title_lower for w in ["monolithic architecture", "in-process calls", "integrate student registration", "integrate the student registration", "typescript", "project structure", "setup project", "setup environment", "initial repo", "repository structure", "project boilerplate", "git repository", "setup repo"]):
                     continue
+
+                # Relocate backend implementation tasks that leak into Milestone 1 to Milestone 2
+                if m_idx == 0 and any(w in t_title_lower for w in ["implement", "develop", "write code", "coding", "logic", "functionality", "controller", "service layer", "business logic", "route handler", "endpoints", "module"]):
+                    # Unless it's database schema/table setup
+                    if not any(w in t_title_lower for w in ["database", "schema", "table", "migration", "entity", "model", "index", "relationship"]):
+                        m_idx = 1
 
                 # Skip/de-duplicate generic boilerplate setup tasks
                 if is_generic_boilerplate(t_title, feature.title):
                     continue
+
+                # Backend Task De-duplication Rule (Milestones 1 & 2):
+                if m_idx in (0, 1):
+                    t_clean = t_title_lower
+                    t_clean = re.sub(r"\b(implement|develop|create|write|setup|configure|logic|feature|module|functionality|code|component|system)\b", "", t_clean)
+                    words = [w for w in re.findall(r"[a-z0-9]+", t_clean) if len(w) > 3]
+                    norm_key = " ".join(sorted(list(set(words))))
+                    if norm_key:
+                        if norm_key in seen_feature_backend_tasks[feature.id]:
+                            continue
+                        seen_feature_backend_tasks[feature.id].add(norm_key)
 
                 global_milestones[m_idx]["tasks"].append({
                     "title": t_title,
