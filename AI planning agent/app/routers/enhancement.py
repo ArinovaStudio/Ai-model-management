@@ -499,8 +499,51 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                             group_id_to_feature_ids[eg.id] = eg.featureIds
                             group_name_to_feature_ids[eg.name.lower().strip()] = eg.featureIds
 
-                    groups_data = []
-                    for eg in groups:
+                    original_tasks_by_id: dict[str, dict[str, Any]] = {}
+                    for t in tasks:
+                        original_tasks_by_id[t.id] = {
+                            "id": t.id,
+                            "title": t.title,
+                            "description": t.description,
+                            "assignee": t.assignee,
+                            "assigneeAvatar": t.assigneeAvatar,
+                            "priority": t.priority,
+                            "dueDate": t.dueDate.isoformat() if t.dueDate else None,
+                            "employeeId": t.employeeId,
+                            "tags": t.tags,
+                            "status": t.status,
+                            "order": t.order,
+                            "dependencies": t.dependencies,
+                            "estimatedHours": t.estimatedHours,
+                            "complexityScore": t.complexityScore,
+                            "effortHours": t.effortHours,
+                            "durationDays": t.durationDays,
+                            "scheduledStart": t.scheduledStart.isoformat() if t.scheduledStart else None,
+                            "scheduledEnd": t.scheduledEnd.isoformat() if t.scheduledEnd else None,
+                            "featureRequestId": t.featureRequestId,
+                        }
+
+                    def _normalize_dependencies(value: Any) -> list[str]:
+                        if value is None:
+                            return []
+                        parsed = value
+                        if isinstance(parsed, str):
+                            try:
+                                parsed = json.loads(parsed)
+                            except Exception:
+                                parsed = [parsed]
+                        if not isinstance(parsed, list):
+                            parsed = [parsed]
+                        return [str(item).strip() for item in parsed if str(item).strip()]
+
+                    def _normalize_scalar(value: Any) -> str:
+                        if value is None:
+                            return ""
+                        if isinstance(value, (dict, list)):
+                            return json.dumps(value, sort_keys=True)
+                        return str(value).strip()
+
+                    async def enhance_group(eg):
                         eg_tasks = [t for t in tasks if t.groupId == eg.id]
                         tasks_list = []
                         for t in eg_tasks:
@@ -537,29 +580,11 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                             "tasks": tasks_list
                         }, ensure_ascii=False, indent=2)
 
-                        # Enforce group-specific enrichment instructions to prevent cross-group task leakage
-                        group_enrichment_prompt = (
-                            f"You are a Prompt Enrichment Assistant. A user wants to edit a specific group/feature of their project planning report.\n"
-                            f"Group Name: {eg.name}\n"
-                            f"Current Group WBS Tasks:\n{group_json}\n\n"
-                            f"User's Natural Language Instruction: '{body.user_instruction}'\n\n"
-                            f"Analyze the user's intent. Translate the instruction into concrete, detailed, structured editing objectives "
-                            f"specifically for the tasks in this group/feature. "
-                            f"Do NOT reference tasks or groups from other features of the project.\n"
-                            f"Output only the enriched, highly descriptive instructions for the editing model. Do not write the edited content itself."
-                        )
-
-                        group_enriched_instruction = await ollama_service.generate_document_style(
-                            system_prompt="You are a professional prompt engineer. You output only the enriched, detailed editing instructions.",
-                            context=group_enrichment_prompt
-                        )
-                        group_enriched_instruction = group_enriched_instruction.strip()
-
                         group_editing_prompt = (
                             f"You are an Expert Technical Writer and Project Architect.\n"
                             f"You must edit the tasks within the following WBS group JSON based on the provided enriched editing instructions.\n\n"
                             f"Current Group WBS:\n{group_json}\n\n"
-                            f"Editing Instructions:\n{group_enriched_instruction}\n\n"
+                            f"Editing Instructions:\n{enriched_instruction}\n\n"
                             f"CRITICAL DIRECTIVES:\n"
                             f"- Output ONLY the updated WBS group JSON. Do not add conversational chatter, intro/outro comments.\n"
                             f"- You MUST preserve the group 'id', 'name', and 'description'. Do not change them.\n"
@@ -587,18 +612,54 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                                 raise ValueError("Parsed JSON is not a dictionary")
                             if "tasks" in g_data and not isinstance(g_data["tasks"], list):
                                 raise ValueError("'tasks' is not a list")
-                            groups_data.append(g_data)
+                            return g_data
                         except Exception as parse_exc:
                             logger.error("Failed to parse group WBS JSON for group %s: %s. Output was: %s", eg.name, parse_exc, group_updated)
-                            # Fallback
-                            groups_data.append({
+                            return {
                                 "id": eg.id,
                                 "name": eg.name,
                                 "description": eg.description,
                                 "totalEffortHours": eg.totalEffortHours,
                                 "featureIds": eg.featureIds,
                                 "tasks": tasks_list
-                            })
+                            }
+
+                    # Run all group enhancements concurrently in parallel
+                    import asyncio
+                    groups_data = await asyncio.gather(*(enhance_group(eg) for eg in groups))
+                    schedule_refresh_needed = False
+                    for g in groups_data:
+                        g_tasks = g.get("tasks", []) if isinstance(g, dict) else []
+                        for t in g_tasks:
+                            task_id = t.get("id") if isinstance(t, dict) else None
+                            original_task = original_tasks_by_id.get(task_id) if task_id else None
+                            if not original_task:
+                                schedule_refresh_needed = True
+                                break
+
+                            if _normalize_dependencies(original_task.get("dependencies")) != _normalize_dependencies(t.get("dependencies")):
+                                schedule_refresh_needed = True
+                                break
+                            if _normalize_scalar(original_task.get("order")) != _normalize_scalar(t.get("order")):
+                                schedule_refresh_needed = True
+                                break
+                            if _normalize_scalar(original_task.get("estimatedHours")) != _normalize_scalar(t.get("estimatedHours", t.get("estimated_hours"))):
+                                schedule_refresh_needed = True
+                                break
+                            if _normalize_scalar(original_task.get("effortHours")) != _normalize_scalar(t.get("effortHours", t.get("effort_hours"))):
+                                schedule_refresh_needed = True
+                                break
+                            if _normalize_scalar(original_task.get("durationDays")) != _normalize_scalar(t.get("durationDays", t.get("duration_days"))):
+                                schedule_refresh_needed = True
+                                break
+                            if _normalize_scalar(original_task.get("scheduledStart")) != _normalize_scalar(t.get("scheduledStart")):
+                                schedule_refresh_needed = True
+                                break
+                            if _normalize_scalar(original_task.get("scheduledEnd")) != _normalize_scalar(t.get("scheduledEnd")):
+                                schedule_refresh_needed = True
+                                break
+                        if schedule_refresh_needed:
+                            break
 
                     # Delete tasks first to prevent foreign key constraint failures
                     await db.task.delete_many(where={"projectId": project_id})
@@ -607,6 +668,9 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                     # Recreate Groups and Tasks
                     inserted_group_ids = set()
                     inserted_task_ids = set()
+                    group_records = []
+                    task_records = []
+
                     for idx, g in enumerate(groups_data):
                         group_id = g.get("id") or str(uuid.uuid4())
                         if group_id in inserted_group_ids:
@@ -632,24 +696,23 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                             else:
                                 group_feature_id = feat_ids.strip()
 
-                        await db.groupingtask.create(
-                            data={
-                                "id": group_id,
-                                "name": g.get("name") or "Unnamed Phase",
-                                "description": g.get("description", ""),
-                                "order": safe_int(g.get("order", idx)),
-                                "totalEffortHours": effort_sum if effort_sum > 0 else safe_float(g.get("totalEffortHours", g.get("total_effort_hours", 0.0))),
-                                "totalDurationDays": safe_float(g.get("totalDurationDays", g.get("total_duration_days", 0.0))),
-                                "projectId": project_id,
-                                "featureIds": feat_ids
-                            }
-                        )
+                        group_records.append({
+                            "id": group_id,
+                            "name": g.get("name") or "Unnamed Phase",
+                            "description": g.get("description", ""),
+                            "order": safe_int(g.get("order", idx)),
+                            "totalEffortHours": effort_sum if effort_sum > 0 else safe_float(g.get("totalEffortHours", g.get("total_effort_hours", 0.0))),
+                            "totalDurationDays": safe_float(g.get("totalDurationDays", g.get("total_duration_days", 0.0))),
+                            "projectId": project_id,
+                            "featureIds": feat_ids
+                        })
 
                         for t_idx, t in enumerate(g_tasks):
                             task_id = t.get("id") or str(uuid.uuid4())
                             if task_id in inserted_task_ids:
                                 task_id = str(uuid.uuid4())
                             inserted_task_ids.add(task_id)
+                            original_task = original_tasks_by_id.get(task_id)
                             
                             due_dt = None
                             if t.get("dueDate"):
@@ -658,7 +721,13 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                                 except Exception:
                                     pass
                             if not due_dt:
-                                due_dt = datetime.now(timezone.utc)
+                                if original_task and original_task.get("dueDate"):
+                                    try:
+                                        due_dt = datetime.fromisoformat(original_task["dueDate"])
+                                    except Exception:
+                                        due_dt = None
+                                if not due_dt:
+                                    due_dt = datetime.now(timezone.utc)
 
                             start_dt = None
                             if t.get("scheduledStart"):
@@ -666,11 +735,21 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                                     start_dt = datetime.fromisoformat(t["scheduledStart"])
                                 except Exception:
                                     pass
+                            if not start_dt and original_task and original_task.get("scheduledStart"):
+                                try:
+                                    start_dt = datetime.fromisoformat(original_task["scheduledStart"])
+                                except Exception:
+                                    pass
 
                             end_dt = None
                             if t.get("scheduledEnd"):
                                 try:
                                     end_dt = datetime.fromisoformat(t["scheduledEnd"])
+                                except Exception:
+                                    pass
+                            if not end_dt and original_task and original_task.get("scheduledEnd"):
+                                try:
+                                    end_dt = datetime.fromisoformat(original_task["scheduledEnd"])
                                 except Exception:
                                     pass
 
@@ -705,6 +784,8 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                                 elif isinstance(deps, str):
                                     if not (deps.startswith('[') and deps.endswith(']')):
                                         deps = json.dumps([deps])
+                            elif original_task and original_task.get("dependencies") is not None:
+                                deps = original_task.get("dependencies")
 
                             # Resolve featureRequestId
                             feat_id = t.get("featureRequestId") or t.get("feature_request_id")
@@ -717,35 +798,44 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                             if isinstance(feat_id, str):
                                 feat_id = feat_id.replace("[", "").replace("]", "").replace('"', "").replace("'", "").strip()
 
-                            await db.task.create(
-                                data={
-                                    "id": task_id,
-                                    "title": final_title,
-                                    "description": desc,
-                                    "assignee": t.get("assignee", "Developer"),
-                                    "assigneeAvatar": t.get("assigneeAvatar"),
-                                    "priority": t.get("priority", "medium"),
-                                    "dueDate": due_dt,
-                                    "employeeId": t.get("employeeId"),
-                                    "tags": t.get("tags", []),
-                                    "status": t.get("status", "pending"),
-                                    "projectId": project_id,
-                                    "groupId": group_id,
-                                    "featureRequestId": feat_id,
-                                    "order": safe_int(t.get("order", t_idx)),
-                                    "dependencies": deps,
-                                    "estimatedHours": safe_float(t.get("estimatedHours", t.get("estimated_hours", 0.0))),
-                                    "complexityScore": safe_float(t.get("complexityScore", 0.0)),
-                                    "effortHours": safe_float(t.get("effortHours", t.get("estimatedHours", 0.0))),
-                                    "durationDays": safe_float(t.get("durationDays", 0.0)),
-                                    "scheduledStart": start_dt,
-                                    "scheduledEnd": end_dt
-                                }
-                            )
+                            task_records.append({
+                                "id": task_id,
+                                "title": final_title,
+                                "description": desc,
+                                "assignee": t.get("assignee", "Developer"),
+                                "assigneeAvatar": t.get("assigneeAvatar"),
+                                "priority": t.get("priority", "medium"),
+                                "dueDate": due_dt,
+                                "employeeId": t.get("employeeId"),
+                                "tags": t.get("tags", []),
+                                "status": t.get("status", "pending"),
+                                "projectId": project_id,
+                                "groupId": group_id,
+                                "featureRequestId": feat_id,
+                                "order": safe_int(t.get("order", t_idx)),
+                                "dependencies": deps,
+                                "estimatedHours": safe_float(t.get("estimatedHours", t.get("estimated_hours", 0.0))),
+                                "complexityScore": safe_float(t.get("complexityScore", 0.0)),
+                                "effortHours": safe_float(t.get("effortHours", t.get("estimatedHours", 0.0))),
+                                "durationDays": safe_float(t.get("durationDays", 0.0)),
+                                "scheduledStart": start_dt,
+                                "scheduledEnd": end_dt
+                            })
+
+                    if group_records:
+                        await db.groupingtask.create_many(data=group_records)
+                    if task_records:
+                        await db.task.create_many(data=task_records)
                     
-                    # Recalculate schedule
-                    from app.services.schedule_engine import generate_schedule
-                    await generate_schedule(project_id, reindex=True)
+                    # Recalculate schedule only if the enhancement changed task timing or dependencies.
+                    if schedule_refresh_needed:
+                        from app.services.schedule_engine import generate_schedule
+                        await generate_schedule(project_id, reindex=True)
+                    else:
+                        logger.info(
+                            "Skipped schedule regeneration for WBS enhancement on project %s because only non-scheduling fields changed",
+                            project_id,
+                        )
 
                 except Exception as loop_err:
                     logger.error("Error during WBS reconstruction: %s. Initiating auto-rollback.", loop_err)

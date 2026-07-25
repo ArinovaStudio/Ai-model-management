@@ -65,6 +65,7 @@ def _group_to_response(g: Any) -> WbsGroupResponse:
             feature_ids = [g.featureIds]
 
     tasks = getattr(g, "tasks", None) or []
+    tasks = sorted(tasks, key=lambda x: x.order or 0)
     return WbsGroupResponse(
         id=g.id,
         name=g.name or "",

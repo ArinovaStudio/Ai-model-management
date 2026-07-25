@@ -130,6 +130,7 @@ async def get_estimation(project_id: str) -> EstimationResponse:
         result_groups = []
         for g in groups:
             tasks_list = getattr(g, "tasks", None) or []
+            tasks_list = sorted(tasks_list, key=lambda x: x.order or 0)
             deps_map = {}
             for t in tasks_list:
                 deps: Optional[list[str]] = None

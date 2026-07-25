@@ -1304,22 +1304,29 @@ const workspace = {
             // Fix invalid trailing > in label bars e.g. |RESTful API|> to |RESTful API|
             line = line.replace(/\|([^|]+)\|\s*>/g, '|$1|');
             
-            // Wrap all unquoted brackets [Label] in double quotes to escape special characters like ->
-            // Support hyphenated node IDs (e.g. web-server) using [a-zA-Z0-9_-]
-            line = line.replace(/([a-zA-Z0-9_-]+)\s*\[([^"\[\]\n]+?)\]/g, '$1["$2"]');
-            
-            // Wrap all unquoted parentheses (Label) in double quotes
-            line = line.replace(/([a-zA-Z0-9_-]+)\s*\(([^"\(\)\n]+?)\)/g, '$1("$2")');
-            
             // Fix unquoted subgraph titles with spaces/special characters
             if (line.trim().startsWith("subgraph ")) {
-                let parts = line.trim().split(/\s+/);
-                if (parts.length > 2) {
-                    let rest = parts.slice(1).join(" ");
-                    if (!rest.startsWith('"') && !rest.endsWith('"')) {
+                const trimmed = line.trim();
+                const squareMatch = trimmed.match(/^subgraph\s+([a-zA-Z0-9_-]+)\s*\[\s*"?([^"\]]+)"?\s*\]/i);
+                const parenMatch = trimmed.match(/^subgraph\s+([a-zA-Z0-9_-]+)\s*\(\s*"?([^"\)]+)"?\s*\)/i);
+                
+                if (squareMatch) {
+                    line = `subgraph ${squareMatch[1]} ["${squareMatch[2].trim()}"]`;
+                } else if (parenMatch) {
+                    line = `subgraph ${parenMatch[1]} ("${parenMatch[2].trim()}")`;
+                } else {
+                    let rest = trimmed.replace(/^subgraph\s+/i, '').trim();
+                    if (rest && !rest.startsWith('"') && !rest.endsWith('"')) {
                         line = `subgraph "${rest}"`;
                     }
                 }
+            } else {
+                // Wrap all unquoted brackets [Label] in double quotes to escape special characters like ->
+                // Support hyphenated node IDs (e.g. web-server) using [a-zA-Z0-9_-]
+                line = line.replace(/([a-zA-Z0-9_-]+)\s*\[([^"\[\]\n]+?)\]/g, '$1["$2"]');
+                
+                // Wrap all unquoted parentheses (Label) in double quotes
+                line = line.replace(/([a-zA-Z0-9_-]+)\s*\(([^"\(\)\n]+?)\)/g, '$1("$2")');
             }
             
             lines[i] = line;
