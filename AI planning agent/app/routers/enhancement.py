@@ -106,6 +106,7 @@ async def _rollback_backup(project_id: str, section: str, key: str):
                 data={
                     "id": g["id"],
                     "name": g.get("name") or "Unnamed Phase",
+                    "order": int(g.get("order", 0)),
                     "totalEffortHours": float(g.get("totalEffortHours", g.get("total_effort_hours", g.get("effort_hours", 0.0)))),
                     "totalDurationDays": float(g.get("totalDurationDays", g.get("total_duration_days", 0.0))),
                     "description": g.get("description", ""),
@@ -262,6 +263,7 @@ async def ensure_backup(project_id: str, section_type: str, section_key: str):
             g_dict = {
                 "id": g.id,
                 "name": g.name,
+                "order": g.order,
                 "totalEffortHours": g.totalEffortHours,
                 "description": g.description,
                 "projectId": g.projectId,
@@ -575,6 +577,7 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                             "id": eg.id,
                             "name": eg.name,
                             "description": eg.description,
+                            "order": eg.order,
                             "totalEffortHours": eg.totalEffortHours,
                             "featureIds": eg.featureIds,
                             "tasks": tasks_list
@@ -612,6 +615,31 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                                 raise ValueError("Parsed JSON is not a dictionary")
                             if "tasks" in g_data and not isinstance(g_data["tasks"], list):
                                 raise ValueError("'tasks' is not a list")
+
+                            original_by_id = {item["id"]: item for item in tasks_list}
+                            original_orders = [safe_int(item.get("order", 0)) for item in tasks_list]
+                            next_order = (max(original_orders) + 1) if original_orders else 0
+                            preserved_tasks = []
+                            appended_tasks = []
+
+                            for index, task_obj in enumerate(g_data.get("tasks", [])):
+                                if not isinstance(task_obj, dict):
+                                    continue
+                                task_id = task_obj.get("id")
+                                original_task = original_by_id.get(task_id)
+                                if original_task:
+                                    task_obj["order"] = safe_int(original_task.get("order", index), index)
+                                    preserved_tasks.append(task_obj)
+                                else:
+                                    task_obj["order"] = next_order
+                                    next_order += 1
+                                    appended_tasks.append((index, task_obj))
+
+                            preserved_tasks.sort(key=lambda item: safe_int(item.get("order", 0)))
+                            appended_tasks.sort(key=lambda item: item[0])
+                            g_data["tasks"] = preserved_tasks + [task for _, task in appended_tasks]
+                            g_data["order"] = safe_int(g_data.get("order", eg.order), eg.order)
+
                             return g_data
                         except Exception as parse_exc:
                             logger.error("Failed to parse group WBS JSON for group %s: %s. Output was: %s", eg.name, parse_exc, group_updated)
@@ -619,6 +647,7 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                                 "id": eg.id,
                                 "name": eg.name,
                                 "description": eg.description,
+                                "order": eg.order,
                                 "totalEffortHours": eg.totalEffortHours,
                                 "featureIds": eg.featureIds,
                                 "tasks": tasks_list
@@ -1055,6 +1084,7 @@ async def revert_section(project_id: str, body: RevertSectionRequest):
                     data={
                         "id": g["id"],
                         "name": g.get("name") or "Unnamed Phase",
+                        "order": int(g.get("order", 0)),
                         "totalEffortHours": float(g.get("totalEffortHours", g.get("total_effort_hours", g.get("effort_hours", 0.0)))),
                         "totalDurationDays": float(g.get("totalDurationDays", g.get("total_duration_days", 0.0))),
                         "description": g.get("description", ""),

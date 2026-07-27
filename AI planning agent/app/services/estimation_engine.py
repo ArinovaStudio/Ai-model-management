@@ -136,6 +136,7 @@ async def run_estimation(
                 "complexity_score": complexity,
                 "effort_hours": effort,
                 "duration_days": duration,
+                "order": task.order if task.order is not None else 0,
             })
 
         total_effort = group.totalEffortHours if group.totalEffortHours is not None else sum(t["effort_hours"] for t in group_task_data)
@@ -148,6 +149,7 @@ async def run_estimation(
         all_group_data.append({
             "group_id": group.id,
             "group_name": group.name or "",
+            "order": group.order if group.order is not None else 0,
             "total_effort_hours": round(total_effort, 2),
             "total_duration_days": round(total_duration, 2),
             "avg_complexity_score": round(avg_complexity, 2),

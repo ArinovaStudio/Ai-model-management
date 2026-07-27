@@ -269,6 +269,7 @@ class EstimationRequest(BaseModel):
 class TaskEstimateResponse(BaseModel):
     task_id: str
     task_title: str
+    order: int = 0
     complexity_score: float = 0
     effort_hours: float = 0
     duration_days: float = 0
@@ -279,6 +280,7 @@ class TaskEstimateResponse(BaseModel):
 class GroupEstimateResponse(BaseModel):
     group_id: str
     group_name: str
+    order: int = 0
     total_effort_hours: float = 0
     total_duration_days: float = 0
     avg_complexity_score: float = 0

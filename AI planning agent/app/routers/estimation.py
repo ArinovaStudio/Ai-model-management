@@ -30,6 +30,7 @@ async def _build_estimation_response(project_id: str, result: dict[str, Any]) ->
             TaskEstimateResponse(
                 task_id=t["task_id"],
                 task_title=t.get("task_title", ""),
+                order=t.get("order", 0),
                 complexity_score=t["complexity_score"],
                 effort_hours=t["effort_hours"],
                 duration_days=t["duration_days"],
@@ -42,6 +43,7 @@ async def _build_estimation_response(project_id: str, result: dict[str, Any]) ->
             GroupEstimateResponse(
                 group_id=g["group_id"],
                 group_name=g.get("group_name", ""),
+                order=g.get("order", 0),
                 total_effort_hours=g["total_effort_hours"],
                 total_duration_days=g["total_duration_days"],
                 avg_complexity_score=g["avg_complexity_score"],
@@ -145,6 +147,7 @@ async def get_estimation(project_id: str) -> EstimationResponse:
                 TaskEstimateResponse(
                     task_id=t.id,
                     task_title=t.title,
+                    order=t.order or 0,
                     complexity_score=t.complexityScore or 0,
                     effort_hours=t.effortHours or 0,
                     duration_days=t.durationDays or 0,
@@ -157,6 +160,7 @@ async def get_estimation(project_id: str) -> EstimationResponse:
                 GroupEstimateResponse(
                     group_id=g.id,
                     group_name=g.name or "",
+                    order=g.order or 0,
                     total_effort_hours=g.totalEffortHours or 0,
                     total_duration_days=g.totalDurationDays or 0,
                     avg_complexity_score=g.avgComplexityScore or 0,

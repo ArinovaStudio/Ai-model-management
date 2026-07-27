@@ -255,15 +255,17 @@ const workspace = {
             // 1. Build Global Task ID -> Title Map & Task ID -> Description Map
             const taskIdToTitle = {};
             const taskIdToDesc = {};
-            res.groups.forEach(g => g.tasks.forEach(t => taskIdToTitle[t.task_id] = t.task_title));
+            const sortedGroups = [...(res.groups || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            sortedGroups.forEach(g => [...(g.tasks || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach(t => taskIdToTitle[t.task_id] = t.task_title));
             wbsTasks.forEach(t => taskIdToDesc[t.id] = t.description);
 
-            res.groups.forEach(g => {
+            sortedGroups.forEach(g => {
                 // 2. Group by Milestone
                 const milestoneGroups = {};
                 const generalTasks = [];
-                
-                g.tasks.forEach(t => {
+
+                const sortedTasks = [...(g.tasks || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+                sortedTasks.forEach(t => {
                     const match = t.task_title.match(/^\[(Milestone\s*\d+[^\]]*)\]/i);
                     if (match) {
                         const mName = match[1];
@@ -287,7 +289,7 @@ const workspace = {
                 });
 
                 sortedMilestoneNames.forEach(mName => {
-                    const mTasks = milestoneGroups[mName];
+                    const mTasks = milestoneGroups[mName].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
                     tasksHtml += `
                         <div style="margin-left: 1.5rem; margin-top: 0.5rem; border-left: 2px solid var(--color-sedate-gray-light); padding-left: 1rem;">
                             <div style="font-weight: 600; font-size: 0.85rem; color: var(--color-sedate-gray); cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
@@ -318,6 +320,7 @@ const workspace = {
 
                 // Render General Tasks (if any)
                 if (generalTasks.length > 0) {
+                    generalTasks.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
                     tasksHtml += generalTasks.map(t => {
                         const depTitles = (t.dependencies || []).map(id => taskIdToTitle[id] || id).join(', ');
                         const depHtml = (t.dependencies && t.dependencies.length > 0) 
