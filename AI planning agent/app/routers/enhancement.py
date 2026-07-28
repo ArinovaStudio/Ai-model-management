@@ -851,6 +851,52 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                                 "scheduledEnd": end_dt
                             })
 
+                    # Ensure all group IDs are globally unique to avoid constraint violations
+                    existing_groups = await db.groupingtask.find_many()
+                    db_group_ids = {eg.id for eg in existing_groups}
+                    group_id_mapping = {}
+                    seen_group_ids = set()
+                    
+                    for gr in group_records:
+                        old_gid = gr["id"]
+                        if old_gid in seen_group_ids or old_gid in db_group_ids:
+                            new_gid = str(uuid.uuid4())
+                            group_id_mapping[old_gid] = new_gid
+                            gr["id"] = new_gid
+                            logger.warning("Resolved duplicate group ID: %s -> %s", old_gid, new_gid)
+                        seen_group_ids.add(gr["id"])
+
+                    # Ensure all task IDs are globally unique (internal and external)
+                    existing_tasks = await db.task.find_many()
+                    db_task_ids = {et.id for et in existing_tasks}
+                    seen_task_ids = set()
+                    task_id_mapping = {}
+                    
+                    for tr in task_records:
+                        old_tid = tr["id"]
+                        # Update the task's groupId if its parent group ID changed
+                        if tr.get("groupId") in group_id_mapping:
+                            tr["groupId"] = group_id_mapping[tr["groupId"]]
+                            
+                        if old_tid in seen_task_ids or old_tid in db_task_ids:
+                            new_tid = str(uuid.uuid4())
+                            task_id_mapping[old_tid] = new_tid
+                            tr["id"] = new_tid
+                            logger.warning("Resolved duplicate task ID: %s -> %s", old_tid, new_tid)
+                        seen_task_ids.add(tr["id"])
+                        
+                    # Rewrite dependencies to match any task IDs that were regenerated
+                    for tr in task_records:
+                        deps_str = tr.get("dependencies")
+                        if deps_str:
+                            try:
+                                deps_list = json.loads(deps_str)
+                                if isinstance(deps_list, list):
+                                    updated_deps = [task_id_mapping.get(d, d) for d in deps_list]
+                                    tr["dependencies"] = json.dumps(updated_deps)
+                            except Exception:
+                                pass
+
                     if group_records:
                         await db.groupingtask.create_many(data=group_records)
                     if task_records:
@@ -867,11 +913,13 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                         )
 
                 except Exception as loop_err:
-                    logger.error("Error during WBS reconstruction: %s. Initiating auto-rollback.", loop_err)
+                    import traceback
+                    tb_str = traceback.format_exc()
+                    logger.error("Error during WBS reconstruction: %s\n%s", loop_err, tb_str)
                     await _rollback_backup(project_id, body.section_type, body.section_key)
                     raise HTTPException(
                         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail=f"WBS enhancement reconstruction failed: {loop_err}. Original WBS has been restored.",
+                        detail=f"WBS enhancement reconstruction failed: {loop_err}. Traceback: {tb_str}. Original WBS has been restored.",
                     )
 
             else:
