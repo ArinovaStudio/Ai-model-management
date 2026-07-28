@@ -53,3 +53,6 @@ Welcome to the comprehensive technical documentation for the **AI Planning Agent
 
 ### 12. [Troubleshooting Diagnostics](12_Troubleshooting.md)
 * Handling 422 errors, unique constraint collisions, and LLM JSON parsing failures.
+
+### 13. [Production Deployment](13_Production_Deployment.md)
+* Docker containerization, GPU cloud VM hosting, and Nginx reverse proxy configuration.
