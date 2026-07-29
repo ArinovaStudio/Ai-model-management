@@ -13,6 +13,7 @@ from app.models.schemas import (
     GroupEstimateResponse,
     TaskEstimateResponse,
 )
+from app.routers.wbs import verify_wbs_approved
 from app.services.estimation_engine import run_estimation
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,7 @@ async def estimate_project(
     body: EstimationRequest = EstimationRequest(),
 ) -> EstimationResponse:
     try:
+        await verify_wbs_approved(project_id, body.is_pipeline_run)
         result = await run_estimation(
             project_id, 
             reindex=body.reindex,

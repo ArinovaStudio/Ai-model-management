@@ -149,10 +149,15 @@
                 <!-- WBS Tab -->
                 <div class="tab-pane active" id="tab-wbs">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; background: var(--bg-card); padding:1rem; border-radius:var(--radius-lg); border: 1px solid var(--color-sedate-gray-light);">
-                        <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Work Breakdown Structure</h4>
+                        <div style="display:flex; align-items:center; gap:0.75rem;">
+                            <h4 style="margin:0; color: var(--color-sedate-gray); font-size:1.1rem;">Work Breakdown Structure</h4>
+                            <span id="wbs-status-badge" class="badge" style="font-size:0.75rem; padding:0.25rem 0.5rem; border-radius:var(--radius-sm); font-weight:600; background: var(--color-dusty-rose); color: white;">DRAFT</span>
+                        </div>
                         <div style="display:flex; gap:0.25rem;">
+                            <button class="btn btn-neutral" id="btn-regenerate-wbs" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.runPipeline()">🔄 Regenerate WBS</button>
                             <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardEnhance('wbs', 'tasks_and_groups')">✨ Enhance WBS</button>
                             <button class="btn btn-neutral" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; background:transparent; border:1px solid var(--color-sedate-gray-light); border-radius:var(--radius-sm);" onclick="workspace.triggerCardRevert('wbs', 'tasks_and_groups')">↩️ Revert WBS</button>
+                            <button class="btn btn-primary" id="btn-approve-wbs" style="font-size:0.75rem; padding:0.25rem 0.5rem; cursor:pointer; border-radius:var(--radius-sm); background:var(--color-sage); border:none; color:white; font-weight:600;" onclick="workspace.approveWBS()">✔️ Approve WBS</button>
                         </div>
                     </div>
                     <div id="wbs-container"></div>
@@ -277,6 +282,53 @@
             <div style="display: flex; gap: 1rem; justify-content: flex-end;">
                 <button class="btn btn-neutral" style="padding: 0.5rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-sedate-gray-light); background: transparent; cursor: pointer;" onclick="document.getElementById('enhance-modal').style.display='none'">Cancel</button>
                 <button class="btn btn-primary" id="enhance-submit-btn" style="padding: 0.5rem 1rem; border-radius: var(--radius-md); background: var(--color-dusty-rose); color: white; border: none; cursor: pointer;" onclick="workspace.submitEnhancement()">Enhance</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Task Modal -->
+    <div id="edit-task-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div class="card" style="width: 500px; padding: 2rem; background: var(--bg-card); border-radius: var(--radius-lg); display: flex; flex-direction: column; gap: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.2); max-height: 90vh; overflow-y: auto;">
+            <h3 style="margin-top: 0; color: var(--color-dusty-rose);">✏️ Edit WBS Task</h3>
+            <input type="hidden" id="edit-task-id">
+            
+            <div>
+                <label for="edit-task-title" style="display: block; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.25rem;">Title</label>
+                <input type="text" id="edit-task-title" class="form-input" style="width: 100%;">
+            </div>
+            
+            <div>
+                <label for="edit-task-desc" style="display: block; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.25rem;">Description</label>
+                <textarea id="edit-task-desc" class="form-input" rows="3" style="width: 100%; resize: vertical;"></textarea>
+            </div>
+            
+            <div style="display: flex; gap: 1rem;">
+                <div style="flex: 1;">
+                    <label for="edit-task-hours" style="display: block; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.25rem;">Estimated Hours</label>
+                    <input type="number" id="edit-task-hours" class="form-input" style="width: 100%;" min="0" step="0.5">
+                </div>
+                <div style="flex: 1;">
+                    <label for="edit-task-priority" style="display: block; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.25rem;">Priority</label>
+                    <select id="edit-task-priority" class="form-input" style="width: 100%; height: 38px; border-radius: var(--radius-sm); border: 1px solid var(--color-sedate-gray-light); background: var(--bg-card); font-size: 0.95rem;">
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label for="edit-task-status" style="display: block; font-size: 0.85rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.25rem;">Status</label>
+                <select id="edit-task-status" class="form-input" style="width: 100%; height: 38px; border-radius: var(--radius-sm); border: 1px solid var(--color-sedate-gray-light); background: var(--bg-card); font-size: 0.95rem;">
+                    <option value="pending">Pending</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                </select>
+            </div>
+
+            <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 0.5rem;">
+                <button class="btn btn-neutral" style="padding: 0.5rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-sedate-gray-light); background: transparent; cursor: pointer;" onclick="document.getElementById('edit-task-modal').style.display='none'">Cancel</button>
+                <button class="btn btn-primary" id="edit-task-submit-btn" style="padding: 0.5rem 1rem; border-radius: var(--radius-md); background: var(--color-dusty-rose); color: white; border: none; cursor: pointer;" onclick="workspace.submitTaskEdit()">Save Changes</button>
             </div>
         </div>
     </div>

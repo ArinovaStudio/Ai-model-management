@@ -90,6 +90,7 @@ def _project_to_response(project: Any) -> ProjectResponse:
         total_effort_hours=round(total_effort, 2),
         total_duration_days=round(total_duration, 2),
         avg_complexity_score=round(avg_complexity, 2),
+        wbs_status=project.wbsStatus,
         created_at=project.createdAt,
         updated_at=project.createdAt,
     )

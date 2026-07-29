@@ -28,6 +28,7 @@ const workspace = {
 
             if (this.projectData.wbs_tasks_count > 0 || this.projectData.milestones_count > 0) {
                 this.showPlanState();
+                this.updateWbsLifecycleUI(this.projectData.wbs_status);
                 
                 try {
                     const val = await window.api.getValidation(this.projectId);
@@ -46,6 +47,119 @@ const workspace = {
         } catch (error) {
             console.error('Failed to load project:', error);
             document.getElementById('project-title').textContent = 'Error loading project';
+        }
+    },
+
+    updateWbsLifecycleUI(status) {
+        const badge = document.getElementById('wbs-status-badge');
+        const btnApprove = document.getElementById('btn-approve-wbs');
+        const btnRegenerate = document.getElementById('btn-regenerate-wbs');
+
+        if (!badge) return;
+
+        badge.textContent = status ? status.toUpperCase() : 'DRAFT';
+        if (status === 'APPROVED') {
+            badge.style.background = 'var(--color-sage)';
+            if (btnApprove) btnApprove.style.display = 'none';
+            if (btnRegenerate) btnRegenerate.style.display = 'none';
+        } else {
+            badge.style.background = 'var(--color-dusty-rose)';
+            if (btnApprove) btnApprove.style.display = 'inline-flex';
+            if (btnRegenerate) btnRegenerate.style.display = 'inline-flex';
+        }
+
+        // Enable or disable downstream tabs depending on the approval status
+        const tabs = document.querySelectorAll('.tabs .tab');
+        tabs.forEach(tab => {
+            const label = tab.textContent.toLowerCase();
+            if (label.includes('schedule') || label.includes('resources') || label.includes('risks') || label.includes('blueprint') || label.includes('technical') || label.includes('documentation')) {
+                if (status === 'APPROVED') {
+                    tab.style.opacity = '1';
+                    tab.style.pointerEvents = 'auto';
+                    tab.title = '';
+                } else {
+                    tab.style.opacity = '0.5';
+                    tab.style.pointerEvents = 'none';
+                    tab.title = 'Approve the WBS to unlock this tab';
+                }
+            }
+        });
+    },
+
+    async approveWBS() {
+        try {
+            const res = await window.api.approveWBS(this.projectId);
+            alert(res.message || 'WBS approved successfully.');
+            // Reload project state to refresh timelines and validation
+            await this.loadProject();
+            // Automatically switch to the schedule tab once approved
+            this.switchTab('schedule');
+        } catch (error) {
+            console.error('Failed to approve WBS:', error);
+            alert('Failed to approve WBS: ' + error.message);
+        }
+    },
+
+    triggerTaskEdit(taskId, title, desc, hours, priority, status) {
+        document.getElementById('edit-task-id').value = taskId;
+        document.getElementById('edit-task-title').value = title;
+        document.getElementById('edit-task-desc').value = desc;
+        document.getElementById('edit-task-hours').value = hours;
+        document.getElementById('edit-task-priority').value = priority;
+        document.getElementById('edit-task-status').value = status;
+        document.getElementById('edit-task-modal').style.display = 'flex';
+    },
+
+    async submitTaskEdit() {
+        const taskId = document.getElementById('edit-task-id').value;
+        const title = document.getElementById('edit-task-title').value.trim();
+        const desc = document.getElementById('edit-task-desc').value.trim();
+        const hours = parseFloat(document.getElementById('edit-task-hours').value);
+        const priority = document.getElementById('edit-task-priority').value;
+        const statusVal = document.getElementById('edit-task-status').value;
+
+        if (!title) {
+            alert("Title is required.");
+            return;
+        }
+
+        const submitBtn = document.getElementById('edit-task-submit-btn');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving...';
+
+        try {
+            await window.api.updateWBSTask(this.projectId, taskId, {
+                title: title,
+                description: desc,
+                estimated_hours: isNaN(hours) ? null : hours,
+                priority: priority,
+                status: statusVal
+            });
+
+            alert("Task updated successfully!");
+            document.getElementById('edit-task-modal').style.display = 'none';
+
+            // Clear cached layouts to force update
+            document.getElementById('wbs-container').innerHTML = '';
+            document.getElementById('schedule-container').innerHTML = '';
+            const tbody = document.getElementById('resources-tbody');
+            if (tbody) tbody.innerHTML = '';
+
+            // Force refresh active tab
+            const tab = this.activeTab || 'wbs';
+            if (tab === 'wbs') await this.loadWBS();
+            else if (tab === 'schedule') await this.loadSchedule();
+            else if (tab === 'resources') await this.loadResources();
+            else await this.loadWBS();
+            
+            // Reload project to update deadline banners/confidence
+            await this.loadProject();
+        } catch (error) {
+            console.error('Failed to update task:', error);
+            alert('Failed to update task: ' + error.message);
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Save Changes';
         }
     },
 
@@ -111,19 +225,19 @@ const workspace = {
             this.updateStep(2, 'done');
 
             this.updateStep(3, 'active');
-            await window.api.generateEstimates(this.projectId, prefs);
+            await window.api.generateEstimates(this.projectId, { ...prefs, is_pipeline_run: true });
             this.updateStep(3, 'done');
 
             this.updateStep(4, 'active');
-            await window.api.generateResourcePlan(this.projectId, prefs);
+            await window.api.generateResourcePlan(this.projectId, { ...prefs, is_pipeline_run: true });
             this.updateStep(4, 'done');
 
             this.updateStep(5, 'active');
-            await window.api.generateSchedule(this.projectId, prefs);
+            await window.api.generateSchedule(this.projectId, { ...prefs, is_pipeline_run: true });
             this.updateStep(5, 'done');
 
             this.updateStep(6, 'active');
-            const validation = await window.api.validatePlan(this.projectId);
+            const validation = await window.api.validatePlan(this.projectId, { is_pipeline_run: true });
             this.updateStep(6, 'done');
 
             this.updateStep(7, 'active');
@@ -305,7 +419,10 @@ const workspace = {
                                     <div class="tree-task" style="margin-left: 0; cursor: pointer; flex-direction: column; align-items: flex-start; gap: 0.25rem;" onclick="const desc = this.querySelector('.task-desc-detail'); desc.style.display = desc.style.display === 'none' ? 'block' : 'none'; event.stopPropagation();">
                                         <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
                                             <span style="font-weight: 500;">${t.cleanTitle}${depHtml}</span>
-                                            <span style="color: var(--text-muted); font-size: 0.8rem;">${t.effort_hours}h</span>
+                                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <span style="color: var(--text-muted); font-size: 0.8rem;">${t.effort_hours}h</span>
+                                                <button class="btn btn-neutral" style="font-size: 0.65rem; padding: 0.15rem 0.3rem; background: transparent; border: 1px solid var(--color-sedate-gray-light); border-radius: var(--radius-sm); cursor: pointer;" onclick="workspace.triggerTaskEdit('${t.task_id}', '${t.task_title.replace(/'/g, "\\'").replace(/"/g, "&quot;")}', '${(taskIdToDesc[t.task_id] || '').replace(/'/g, "\\'").replace(/"/g, "&quot;").replace(/\n/g, "\\n")}', ${t.estimated_hours || t.effort_hours}, '${t.priority || 'medium'}', '${t.status || 'pending'}'); event.stopPropagation();">✏️</button>
+                                            </div>
                                         </div>
                                         <div class="task-desc-detail" style="display: none; font-size: 0.8rem; color: var(--text-muted); padding: 0.5rem; background: rgba(0,0,0,0.02); border-left: 2px solid var(--color-sedate-gray); width: 100%; border-radius: var(--radius-sm); box-sizing: border-box; margin-top: 0.25rem;">
                                             ${taskIdToDesc[t.task_id] || 'No further description available.'}
@@ -330,7 +447,10 @@ const workspace = {
                         <div class="tree-task" style="cursor: pointer; flex-direction: column; align-items: flex-start; gap: 0.25rem;" onclick="const desc = this.querySelector('.task-desc-detail'); desc.style.display = desc.style.display === 'none' ? 'block' : 'none'; event.stopPropagation();">
                             <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
                                 <span style="font-weight: 500;">${t.cleanTitle}${depHtml}</span>
-                                <span style="color: var(--text-muted); font-size: 0.8rem;">${t.effort_hours}h</span>
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span style="color: var(--text-muted); font-size: 0.8rem;">${t.effort_hours}h</span>
+                                    <button class="btn btn-neutral" style="font-size: 0.65rem; padding: 0.15rem 0.3rem; background: transparent; border: 1px solid var(--color-sedate-gray-light); border-radius: var(--radius-sm); cursor: pointer;" onclick="workspace.triggerTaskEdit('${t.task_id}', '${t.task_title.replace(/'/g, "\\'").replace(/"/g, "&quot;")}', '${(taskIdToDesc[t.task_id] || '').replace(/'/g, "\\'").replace(/"/g, "&quot;").replace(/\n/g, "\\n")}', ${t.estimated_hours || t.effort_hours}, '${t.priority || 'medium'}', '${t.status || 'pending'}'); event.stopPropagation();">✏️</button>
+                                </div>
                             </div>
                             <div class="task-desc-detail" style="display: none; font-size: 0.8rem; color: var(--text-muted); padding: 0.5rem; background: rgba(0,0,0,0.02); border-left: 2px solid var(--color-sedate-gray); width: 100%; border-radius: var(--radius-sm); box-sizing: border-box; margin-top: 0.25rem;">
                                 ${taskIdToDesc[t.task_id] || 'No further description available.'}

@@ -10,6 +10,7 @@ from app.models.schemas import (
     ResourcePlanRequest,
     ResourcePlanResponse,
 )
+from app.routers.wbs import verify_wbs_approved
 from app.services.resource_engine import run_resource_planning
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ async def generate_resource_plan(
     body: ResourcePlanRequest = ResourcePlanRequest(),
 ) -> ResourcePlanResponse:
     try:
+        await verify_wbs_approved(project_id, body.is_pipeline_run)
         result = await run_resource_planning(project_id, reindex=body.reindex)
         project = await db.project.find_unique(where={"id": project_id})
 

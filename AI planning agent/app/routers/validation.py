@@ -12,6 +12,7 @@ from app.models.schemas import (
     ValidationRequest,
     ValidationResponse,
 )
+from app.routers.wbs import verify_wbs_approved
 from app.services.validation_engine import run_validation
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ async def validate_project(
     body: ValidationRequest = ValidationRequest(),
 ) -> ValidationResponse:
     try:
+        await verify_wbs_approved(project_id, body.is_pipeline_run)
         result = await run_validation(project_id, reindex=body.reindex)
         project = await db.project.find_unique(where={"id": project_id})
 

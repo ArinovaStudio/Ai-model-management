@@ -120,11 +120,11 @@ const api = {
         return res.json();
     },
 
-    async validatePlan(id) {
+    async validatePlan(id, prefs = {}) {
         const res = await fetch(`${API_BASE_URL}/${id}/validate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reindex: true })
+            body: JSON.stringify({ reindex: true, ...prefs })
         });
         if (!res.ok) throw new Error('Failed to validate plan');
         return res.json();
@@ -217,6 +217,25 @@ const api = {
             body: JSON.stringify(payload)
         });
         if (!res.ok) throw new Error('Failed to revert section');
+        return res.json();
+    },
+
+    async approveWBS(id) {
+        const res = await fetch(`${API_BASE_URL}/${id}/wbs/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        if (!res.ok) throw new Error('Failed to approve WBS');
+        return res.json();
+    },
+
+    async updateWBSTask(projectId, taskId, payload) {
+        const res = await fetch(`${API_BASE_URL}/${projectId}/wbs/tasks/${taskId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Failed to update WBS task');
         return res.json();
     }
 };

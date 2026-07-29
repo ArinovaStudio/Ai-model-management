@@ -14,6 +14,7 @@ from app.models.schemas import (
     ScheduledTaskInfo,
     SprintInfo,
 )
+from app.routers.wbs import verify_wbs_approved
 from app.services.schedule_engine import generate_schedule
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ async def generate_schedule_endpoint(
     body: ScheduleRequest = ScheduleRequest(),
 ) -> ScheduleResponse:
     try:
+        await verify_wbs_approved(project_id, body.is_pipeline_run)
         result = await generate_schedule(
             project_id, 
             reindex=body.reindex,

@@ -99,6 +99,7 @@ class ProjectResponse(BaseModel):
     total_effort_hours: Optional[float] = 0
     total_duration_days: Optional[float] = 0
     avg_complexity_score: Optional[float] = 0
+    wbs_status: str = "DRAFT"
     created_at: datetime
     updated_at: datetime
 
@@ -241,6 +242,7 @@ class WbsResponse(BaseModel):
     groups: list[WbsGroupResponse]
     total_groups: int
     total_tasks: int
+    wbs_status: str = "DRAFT"
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -264,6 +266,7 @@ class EstimationRequest(BaseModel):
     reindex: bool = False
     sprint_duration_days: Optional[int] = 14
     productive_hours_per_day: Optional[float] = 6.0
+    is_pipeline_run: bool = False
 
 
 class TaskEstimateResponse(BaseModel):
@@ -320,6 +323,7 @@ class ResourcePlanRequest(BaseModel):
     reindex: bool = False
     sprint_duration_days: Optional[int] = 14
     productive_hours_per_day: Optional[float] = 6.0
+    is_pipeline_run: bool = False
 
 
 class ResourcePlanResponse(BaseModel):
@@ -338,6 +342,7 @@ class ScheduleRequest(BaseModel):
     reindex: bool = False
     sprint_duration_days: Optional[int] = 14
     productive_hours_per_day: Optional[float] = 6.0
+    is_pipeline_run: bool = False
 
 
 class MilestoneResponse(BaseModel):
@@ -398,6 +403,7 @@ class ScheduleResponse(BaseModel):
 
 class ValidationRequest(BaseModel):
     reindex: bool = False
+    is_pipeline_run: bool = False
 
 
 class ConfidenceReport(BaseModel):

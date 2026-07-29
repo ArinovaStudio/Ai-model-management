@@ -22,6 +22,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+async def verify_wbs_approved(project_id: str, is_pipeline_run: bool = False):
+    if is_pipeline_run:
+        return
+    project = await db.project.find_unique(where={"id": project_id})
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+    if project.wbsStatus != "APPROVED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Action blocked: The Work Breakdown Structure (WBS) must be approved before running this stage.",
+        )
+
+
 def _task_to_response(t: Any) -> WbsTaskResponse:
     deps: Optional[list[str]] = None
     if t.dependencies:
@@ -120,7 +136,10 @@ async def generate_wbs_endpoint(
             yield json.dumps({"error": f"WBS generation failed: {exc}", "status_code": 422}).encode('utf-8')
             return
 
-        project = await db.project.find_unique(where={"id": project_id})
+        project = await db.project.update(
+            where={"id": project_id},
+            data={"wbsStatus": "DRAFT"}
+        )
         groups = [_group_to_response(g) for g in result["groups"]]
 
         response_model = WbsResponse(
@@ -129,6 +148,7 @@ async def generate_wbs_endpoint(
             groups=groups,
             total_groups=result["total_groups"],
             total_tasks=result["total_tasks"],
+            wbs_status="DRAFT",
         )
         
         # Yield the actual JSON response
@@ -172,6 +192,7 @@ async def get_wbs(project_id: str) -> WbsResponse:
             groups=wbs_groups,
             total_groups=len(wbs_groups),
             total_tasks=total_tasks,
+            wbs_status=project.wbsStatus,
         )
 
     except HTTPException:
@@ -181,6 +202,47 @@ async def get_wbs(project_id: str) -> WbsResponse:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to get WBS: {exc}",
+        )
+
+
+@router.post(
+    "/{project_id}/wbs/approve",
+    response_model=dict[str, str],
+    responses={404: {"model": ErrorResponse}},
+)
+async def approve_wbs(project_id: str) -> dict[str, str]:
+    try:
+        project = await db.project.find_unique(where={"id": project_id})
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Project {project_id} not found",
+            )
+
+        # Update status in DB
+        await db.project.update(
+            where={"id": project_id},
+            data={"wbsStatus": "APPROVED"}
+        )
+
+        # Trigger schedule and validation engines automatically to generate initial timelines
+        try:
+            from app.services.schedule_engine import generate_schedule
+            from app.services.validation_engine import run_validation
+            await generate_schedule(project_id, reindex=True)
+            await run_validation(project_id)
+        except Exception as schedule_err:
+            logger.warning("Failed to auto-generate schedule/validation upon WBS approval: %s", schedule_err)
+
+        return {"wbs_status": "APPROVED", "message": "WBS plan approved successfully."}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to approve WBS for project %s: %s", project_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to approve WBS: {exc}",
         )
 
 
@@ -297,6 +359,29 @@ async def update_wbs_task(
         if body.dependencies is not None:
             update_data["dependencies"] = json.dumps(body.dependencies)
 
+        # Recalculate effort and complexity if any planning attributes are changed
+        if body.estimated_hours is not None or body.dependencies is not None or body.title is not None or body.description is not None:
+            est_hours = body.estimated_hours if body.estimated_hours is not None else (existing.estimatedHours or 4.0)
+            deps_val = body.dependencies if body.dependencies is not None else json.loads(existing.dependencies or "[]")
+            title_val = body.title if body.title is not None else (existing.title or "")
+            desc_val = body.description if body.description is not None else (existing.description or "")
+            
+            from app.services.estimation_engine import _compute_task_complexity, _compute_effort
+            complexity = _compute_task_complexity(
+                title=title_val,
+                description=desc_val,
+                dependency_count=len(deps_val)
+            )
+            # Default productive hours per day is 6.0
+            effort, duration = _compute_effort(
+                float(est_hours),
+                complexity,
+                6.0
+            )
+            update_data["complexityScore"] = float(complexity)
+            update_data["effortHours"] = float(effort)
+            update_data["durationDays"] = float(duration)
+
         if not update_data:
             return _task_to_response(existing)
 
@@ -305,6 +390,15 @@ async def update_wbs_task(
             data=update_data,
             include={"featureRequest": True},
         )
+
+        # Sync downstream schedule
+        try:
+            from app.services.schedule_engine import generate_schedule
+            from app.services.validation_engine import run_validation
+            await generate_schedule(project_id, reindex=True)
+            await run_validation(project_id)
+        except Exception as schedule_err:
+            logger.warning("Failed to auto-reschedule after manual WBS edit: %s", schedule_err)
 
         return _task_to_response(updated)
 
