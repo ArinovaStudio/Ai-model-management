@@ -119,6 +119,11 @@ async def get_estimation(project_id: str) -> EstimationResponse:
                 detail=f"Project {project_id} not found",
             )
 
+        from app.db.redis import get_cached_wbs_estimates, set_cached_wbs_estimates
+        cached = await get_cached_wbs_estimates(project_id)
+        if cached is not None:
+            return cached
+
         groups = await db.groupingtask.find_many(
             where={"projectId": project_id},
             include={"tasks": True},
@@ -184,12 +189,14 @@ async def get_estimation(project_id: str) -> EstimationResponse:
             total_groups=len(groups),
         )
 
-        return EstimationResponse(
+        resp = EstimationResponse(
             project_id=project_id,
             project_name=project.name,
             summary=summary,
             groups=result_groups,
         )
+        await set_cached_wbs_estimates(project_id, resp)
+        return resp
 
     except HTTPException:
         raise

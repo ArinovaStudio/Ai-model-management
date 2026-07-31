@@ -32,6 +32,11 @@ async def lifespan(app: FastAPI):
     yield
     keepalive_task.cancel()
     await disconnect_db()
+    try:
+        from app.db.redis import close_redis
+        await close_redis()
+    except Exception as e:
+        logger.warning("Failed to cleanly close Redis connection: %s", e)
     logger.info("Project Planning Engine shut down")
 
 

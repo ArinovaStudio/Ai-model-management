@@ -3,7 +3,7 @@ import logging
 import asyncio
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
 from app.db.prisma import db
@@ -140,6 +140,8 @@ async def generate_wbs_endpoint(
             where={"id": project_id},
             data={"wbsStatus": "DRAFT"}
         )
+        from app.db.redis import invalidate_project_cache
+        await invalidate_project_cache(project_id)
         groups = [_group_to_response(g) for g in result["groups"]]
 
         response_model = WbsResponse(
@@ -224,6 +226,8 @@ async def approve_wbs(project_id: str) -> dict[str, str]:
             where={"id": project_id},
             data={"wbsStatus": "APPROVED"}
         )
+        from app.db.redis import invalidate_project_cache
+        await invalidate_project_cache(project_id)
 
         # Trigger schedule and validation engines automatically to generate initial timelines
         try:
@@ -296,6 +300,13 @@ async def list_wbs_tasks(
                 detail=f"Project {project_id} not found",
             )
 
+        if not group_id and not status_filter:
+            from app.db.redis import get_cached_wbs_tasks, set_cached_wbs_tasks
+            cached = await get_cached_wbs_tasks(project_id)
+            if cached is not None:
+                # Return cached payload directly
+                return cached
+
         where: dict[str, Any] = {"projectId": project_id}
         if group_id:
             where["groupId"] = group_id
@@ -308,7 +319,10 @@ async def list_wbs_tasks(
             order={"order": "asc"},
         )
 
-        return [_task_to_response(t) for t in tasks]
+        response_data = [_task_to_response(t) for t in tasks]
+        if not group_id and not status_filter:
+            await set_cached_wbs_tasks(project_id, response_data)
+        return response_data
 
     except HTTPException:
         raise
@@ -320,6 +334,8 @@ async def list_wbs_tasks(
         )
 
 
+
+
 @router.patch(
     "/{project_id}/wbs/tasks/{task_id}",
     response_model=WbsTaskResponse,
@@ -329,6 +345,7 @@ async def update_wbs_task(
     project_id: str,
     task_id: str,
     body: WbsTaskUpdate,
+    background_tasks: BackgroundTasks,
 ) -> WbsTaskResponse:
     try:
         existing = await db.task.find_unique(where={"id": task_id})
@@ -391,12 +408,18 @@ async def update_wbs_task(
             include={"featureRequest": True},
         )
 
-        # Sync downstream schedule
+        try:
+            from app.db.redis import invalidate_project_cache
+            await invalidate_project_cache(project_id)
+        except Exception as cache_err:
+            logger.warning("Failed to invalidate Redis cache after manual WBS edit: %s", cache_err)
+
+        # Sync downstream schedule and validate in the background
         try:
             from app.services.schedule_engine import generate_schedule
             from app.services.validation_engine import run_validation
             await generate_schedule(project_id, reindex=True)
-            await run_validation(project_id)
+            background_tasks.add_task(run_validation, project_id)
         except Exception as schedule_err:
             logger.warning("Failed to auto-reschedule after manual WBS edit: %s", schedule_err)
 
@@ -432,6 +455,8 @@ async def clear_wbs(project_id: str) -> None:
             delete_where["featureRequestId"] = {"not": None}
         await db.task.delete_many(where=delete_where)
         await db.groupingtask.delete_many(where={"projectId": project_id})
+        from app.db.redis import invalidate_project_cache
+        await invalidate_project_cache(project_id)
         logger.info("Cleared WBS for project %s", project_id)
 
     except HTTPException:

@@ -173,7 +173,44 @@ async def generate_wbs(
     sem = asyncio.Semaphore(4)
 
     async def get_feature_wbs(feature: Any) -> tuple[Any, Optional[dict[str, Any]], bool]:
-        async with sem:
+        # Check Redis connection
+        redis_available = False
+        redis_client = None
+        token_id = str(uuid.uuid4())
+        try:
+            from app.db.redis import get_redis_client, is_redis_available
+            if await is_redis_available():
+                redis_client = get_redis_client()
+                redis_available = True
+        except Exception:
+            pass
+
+        # Concurrency Wrapper
+        class ConcurrencyGuard:
+            async def __aenter__(self):
+                if redis_available and redis_client:
+                    import time
+                    acquired = False
+                    while not acquired:
+                        now = time.time()
+                        # Clean up expired tokens (>60 seconds old)
+                        await redis_client.zremrangebyscore("sem:llm:tokens", 0, now - 60)
+                        count = await redis_client.zcard("sem:llm:tokens")
+                        if count < 4:
+                            await redis_client.zadd("sem:llm:tokens", {token_id: now})
+                            acquired = True
+                        else:
+                            await asyncio.sleep(0.5)
+                else:
+                    await sem.acquire()
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                if redis_available and redis_client:
+                    await redis_client.zrem("sem:llm:tokens", token_id)
+                else:
+                    sem.release()
+
+        async with ConcurrencyGuard():
             max_retries = 2
             for attempt in range(max_retries):
                 try:

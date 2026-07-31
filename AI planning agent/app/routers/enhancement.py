@@ -474,452 +474,281 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                 try:
                     tasks = await db.task.find_many(where={"projectId": project_id}, order={"order": "asc"})
                     groups = await db.groupingtask.find_many(where={"projectId": project_id}, order={"order": "asc"})
-                    project_info = await db.projectinfo.find_unique(where={"projectId": project_id})
-                    architecture_pattern = (getattr(project_info, "projectType", None) or "Monolithic").lower()
-                    features = await db.featurerequest.find_many(where={"projectId": project_id})
                     
-                    id_to_prefix = {}
-                    id_to_feature_req = {}
-                    title_to_feature_req = {}
-                    default_feature_req_id = None
-                    for et in tasks:
-                        if et.featureRequestId:
-                            id_to_feature_req[et.id] = et.featureRequestId
-                            title_to_feature_req[et.title.lower().strip()] = et.featureRequestId
-                            if not default_feature_req_id:
-                                default_feature_req_id = et.featureRequestId
-
-                    if not default_feature_req_id:
-                        first_fr = await db.featurerequest.find_first(where={"projectId": project_id})
-                        if first_fr:
-                            default_feature_req_id = first_fr.id
-
-                    group_id_to_feature_ids = {}
-                    group_name_to_feature_ids = {}
-                    for eg in groups:
-                        if eg.featureIds:
-                            group_id_to_feature_ids[eg.id] = eg.featureIds
-                            group_name_to_feature_ids[eg.name.lower().strip()] = eg.featureIds
-
-                    original_tasks_by_id: dict[str, dict[str, Any]] = {}
-                    for t in tasks:
-                        original_tasks_by_id[t.id] = {
-                            "id": t.id,
-                            "title": t.title,
-                            "description": t.description,
-                            "assignee": t.assignee,
-                            "assigneeAvatar": t.assigneeAvatar,
-                            "priority": t.priority,
-                            "dueDate": t.dueDate.isoformat() if t.dueDate else None,
-                            "employeeId": t.employeeId,
-                            "tags": t.tags,
-                            "status": t.status,
-                            "order": t.order,
-                            "dependencies": t.dependencies,
-                            "estimatedHours": t.estimatedHours,
-                            "complexityScore": t.complexityScore,
-                            "effortHours": t.effortHours,
-                            "durationDays": t.durationDays,
-                            "scheduledStart": t.scheduledStart.isoformat() if t.scheduledStart else None,
-                            "scheduledEnd": t.scheduledEnd.isoformat() if t.scheduledEnd else None,
-                            "featureRequestId": t.featureRequestId,
-                        }
-
-                    def _normalize_dependencies(value: Any) -> list[str]:
-                        if value is None:
-                            return []
-                        parsed = value
-                        if isinstance(parsed, str):
-                            try:
-                                parsed = json.loads(parsed)
-                            except Exception:
-                                parsed = [parsed]
-                        if not isinstance(parsed, list):
-                            parsed = [parsed]
-                        return [str(item).strip() for item in parsed if str(item).strip()]
-
-                    def _normalize_scalar(value: Any) -> str:
-                        if value is None:
-                            return ""
-                        if isinstance(value, (dict, list)):
-                            return json.dumps(value, sort_keys=True)
-                        return str(value).strip()
-
-                    async def enhance_group(eg):
-                        eg_tasks = [t for t in tasks if t.groupId == eg.id]
-                        tasks_list = []
-                        for t in eg_tasks:
-                            prefix, clean_title = extract_milestone_prefix(t.title)
-                            id_to_prefix[t.id] = prefix
-                            tasks_list.append({
-                                "id": t.id,
-                                "title": clean_title,
-                                "description": t.description,
-                                "assignee": t.assignee,
-                                "assigneeAvatar": t.assigneeAvatar,
-                                "priority": t.priority,
-                                "dueDate": t.dueDate.isoformat() if t.dueDate else None,
-                                "employeeId": t.employeeId,
-                                "tags": t.tags,
-                                "status": t.status,
-                                "order": t.order,
-                                "dependencies": t.dependencies,
-                                "estimatedHours": t.estimatedHours,
-                                "complexityScore": t.complexityScore,
-                                "effortHours": t.effortHours,
-                                "durationDays": t.durationDays,
-                                "scheduledStart": t.scheduledStart.isoformat() if t.scheduledStart else None,
-                                "scheduledEnd": t.scheduledEnd.isoformat() if t.scheduledEnd else None,
-                                "featureRequestId": t.featureRequestId
-                            })
-
-                        group_json = json.dumps({
-                            "id": eg.id,
-                            "name": eg.name,
-                            "description": eg.description,
-                            "order": eg.order,
-                            "totalEffortHours": eg.totalEffortHours,
-                            "featureIds": eg.featureIds,
-                            "tasks": tasks_list
-                        }, ensure_ascii=False, indent=2)
-
-                        group_editing_prompt = (
-                            f"You are an Expert Technical Writer and Project Architect.\n"
-                            f"You must edit the tasks within the following WBS group JSON based on the provided enriched editing instructions.\n\n"
-                            f"Current Group WBS:\n{group_json}\n\n"
-                            f"Editing Instructions:\n{enriched_instruction}\n\n"
-                            f"CRITICAL DIRECTIVES:\n"
-                            f"- Output ONLY the updated WBS group JSON. Do not add conversational chatter, intro/outro comments.\n"
-                            f"- You MUST preserve the group 'id', 'name', and 'description'. Do not change them.\n"
-                            f"- You MUST keep the task 'id' of existing tasks. Do not generate random new task IDs unless adding new tasks.\n"
-                            f"- If a task does not need to be modified based on the instructions, you MUST preserve its original 'title', 'description', and 'estimatedHours' exactly.\n"
-                            f"- Update the tasks within the group to reflect the editing instructions.\n"
-                            f"- Keep the tasks array structure intact.\n"
-                            f"Updated WBS Group JSON:"
-                        )
-
-                        group_updated = await ollama_service.generate_document_style(
-                            system_prompt="You are an expert editor. You only output the updated JSON representation of the WBS group.",
-                            context=group_editing_prompt
-                        )
-                        group_updated = group_updated.strip()
-
-                        try:
-                            if "```" in group_updated:
-                                lines = group_updated.split("\n")
-                                clean_lines = [l for l in lines if not (l.strip().startswith("```") or l.strip().endswith("```"))]
-                                group_updated = "\n".join(clean_lines)
-
-                            g_data = json.loads(group_updated, strict=False)
-                            if not isinstance(g_data, dict):
-                                raise ValueError("Parsed JSON is not a dictionary")
-                            if "tasks" in g_data and not isinstance(g_data["tasks"], list):
-                                raise ValueError("'tasks' is not a list")
-
-                            original_by_id = {item["id"]: item for item in tasks_list}
-                            original_orders = [safe_int(item.get("order", 0)) for item in tasks_list]
-                            next_order = (max(original_orders) + 1) if original_orders else 0
-                            preserved_tasks = []
-                            appended_tasks = []
-
-                            for index, task_obj in enumerate(g_data.get("tasks", [])):
-                                if not isinstance(task_obj, dict):
-                                    continue
-                                task_id = task_obj.get("id")
-                                original_task = original_by_id.get(task_id)
-                                if original_task:
-                                    task_obj["order"] = safe_int(original_task.get("order", index), index)
-                                    preserved_tasks.append(task_obj)
-                                else:
-                                    task_obj["order"] = next_order
-                                    next_order += 1
-                                    appended_tasks.append((index, task_obj))
-
-                            preserved_tasks.sort(key=lambda item: safe_int(item.get("order", 0)))
-                            appended_tasks.sort(key=lambda item: item[0])
-                            g_data["tasks"] = preserved_tasks + [task for _, task in appended_tasks]
-                            g_data["order"] = safe_int(g_data.get("order", eg.order), eg.order)
-
-                            return g_data
-                        except Exception as parse_exc:
-                            logger.error("Failed to parse group WBS JSON for group %s: %s. Output was: %s", eg.name, parse_exc, group_updated)
-                            return {
+                    # 1. Build WBS context representation for AI analysis
+                    wbs_context = {
+                        "groups": [
+                            {
                                 "id": eg.id,
                                 "name": eg.name,
                                 "description": eg.description,
                                 "order": eg.order,
-                                "totalEffortHours": eg.totalEffortHours,
-                                "featureIds": eg.featureIds,
-                                "tasks": tasks_list
+                                "tasks": [
+                                    {
+                                        "id": t.id,
+                                        "title": t.title,
+                                        "description": t.description,
+                                        "estimatedHours": t.estimatedHours,
+                                        "priority": t.priority,
+                                        "dependencies": json.loads(t.dependencies) if t.dependencies else [],
+                                    }
+                                    for t in tasks if t.groupId == eg.id
+                                ]
                             }
+                            for eg in groups
+                        ]
+                    }
 
-                    # Run all group enhancements concurrently in parallel
-                    import asyncio
-                    groups_data = await asyncio.gather(*(enhance_group(eg) for eg in groups))
-                    schedule_refresh_needed = False
-                    for g in groups_data:
-                        g_tasks = g.get("tasks", []) if isinstance(g, dict) else []
-                        for t in g_tasks:
-                            task_id = t.get("id") if isinstance(t, dict) else None
-                            original_task = original_tasks_by_id.get(task_id) if task_id else None
-                            if not original_task:
-                                schedule_refresh_needed = True
-                                break
+                    # Ensure backup exists before mutating anything
+                    await ensure_backup(project_id, body.section_type, body.section_key)
 
-                            if _normalize_dependencies(original_task.get("dependencies")) != _normalize_dependencies(t.get("dependencies")):
-                                schedule_refresh_needed = True
-                                break
-                            if _normalize_scalar(original_task.get("order")) != _normalize_scalar(t.get("order")):
-                                schedule_refresh_needed = True
-                                break
-                            if _normalize_scalar(original_task.get("estimatedHours")) != _normalize_scalar(t.get("estimatedHours", t.get("estimated_hours"))):
-                                schedule_refresh_needed = True
-                                break
-                            if _normalize_scalar(original_task.get("effortHours")) != _normalize_scalar(t.get("effortHours", t.get("effort_hours"))):
-                                schedule_refresh_needed = True
-                                break
-                            if _normalize_scalar(original_task.get("durationDays")) != _normalize_scalar(t.get("durationDays", t.get("duration_days"))):
-                                schedule_refresh_needed = True
-                                break
-                            if _normalize_scalar(original_task.get("scheduledStart")) != _normalize_scalar(t.get("scheduledStart")):
-                                schedule_refresh_needed = True
-                                break
-                            if _normalize_scalar(original_task.get("scheduledEnd")) != _normalize_scalar(t.get("scheduledEnd")):
-                                schedule_refresh_needed = True
-                                break
-                        if schedule_refresh_needed:
-                            break
+                    # 2. Query AI to generate selective mutations
+                    wbs_diff_prompt = (
+                        f"You are an Expert Project Architect and Technical Editor.\n"
+                        f"Analyze the current WBS structure and the user's instructions, then output a JSON object describing selective mutations (ADD/UPDATE/DELETE) to perform.\n\n"
+                        f"Current WBS Context:\n{json.dumps(wbs_context, indent=2)}\n\n"
+                        f"User's Editing Instructions:\n{enriched_instruction}\n\n"
+                        f"CRITICAL DIRECTIVES:\n"
+                        f"- Output ONLY a valid JSON object matching the schema below. Do not include markdown code blocks or conversational chatter:\n"
+                        f"{{\n"
+                        f"  \"group_mutations\": [\n"
+                        f"    {{ \"action\": \"ADD\"|\"UPDATE\"|\"DELETE\", \"id\": \"group_id\", \"name\": \"...\", \"description\": \"...\", \"order\": 1 }}\n"
+                        f"  ],\n"
+                        f"  \"task_mutations\": [\n"
+                        f"    {{ \"action\": \"ADD\"|\"UPDATE\"|\"DELETE\", \"id\": \"task_id\", \"group_id\": \"group_id\", \"title\": \"...\", \"description\": \"...\", \"estimatedHours\": 4.0, \"priority\": \"medium\", \"dependencies\": [\"dep_task_id\"] }}\n"
+                        f"  ]\n"
+                        f"}}\n"
+                        f"- Group Creation Restraints:\n"
+                        f"  - DO NOT add new groups in 'group_mutations' unless the user's instruction explicitly requests to create a new phase/milestone.\n"
+                        f"  - All new tasks MUST be mapped to the 'group_id' of the most relevant existing milestone group (for example, if adding logging or deployment tasks, put them under the existing 'Milestone 5: Deployment & Go-Live' group ID).\n"
+                        f"  - Do not create custom or descriptive milestone group names like 'Deployment & Go-Live Part: ...'. Reuse the exact existing IDs.\n"
+                        f"- Actions:\n"
+                        f"  - ADD: Create a new task. Generate a valid random UUID for the new 'id'.\n"
+                        f"  - UPDATE: Modify an existing group or task. Specify 'id' and only the fields to change.\n"
+                        f"  - DELETE: Remove an existing group or task. Specify only 'id'.\n"
+                        f"- DO NOT touch, modify, or output mutations for groups or tasks that are unrelated to the instruction.\n"
+                        f"JSON Mutation Output:"
+                    )
 
-                    # Delete tasks first to prevent foreign key constraint failures
-                    await db.task.delete_many(where={"projectId": project_id})
-                    await db.groupingtask.delete_many(where={"projectId": project_id})
+                    ai_output = await ollama_service.generate_document_style(
+                        system_prompt="You are an expert editor. You only output WBS mutation JSON matching the schema.",
+                        context=wbs_diff_prompt
+                    )
+                    ai_output = ai_output.strip()
 
-                    # Recreate Groups and Tasks
-                    inserted_group_ids = set()
-                    inserted_task_ids = set()
-                    group_records = []
-                    task_records = []
-
-                    for idx, g in enumerate(groups_data):
-                        group_id = g.get("id") or str(uuid.uuid4())
-                        if group_id in inserted_group_ids:
-                            group_id = str(uuid.uuid4())
-                        inserted_group_ids.add(group_id)
-                        
-                        g_tasks = g.get("tasks", [])
-                        effort_sum = sum(safe_float(t.get("estimatedHours", t.get("estimated_hours", t.get("effortHours", t.get("effort_hours", 0.0))))) for t in g_tasks)
-
-                        # Resolve featureIds for the group
-                        feat_ids = g.get("featureIds")
-                        if isinstance(feat_ids, str):
-                            feat_ids = feat_ids.strip() or None
+                    # Extract JSON substring robustly to strip conversational prefixes/suffixes
+                    def extract_json_substring(text: str) -> str:
+                        start_idx_obj = text.find("{")
+                        start_idx_arr = text.find("[")
+                        if start_idx_obj != -1 and (start_idx_arr == -1 or start_idx_obj < start_idx_arr):
+                            start = start_idx_obj
+                            end = text.rfind("}")
+                        elif start_idx_arr != -1:
+                            start = start_idx_arr
+                            end = text.rfind("]")
                         else:
-                            feat_ids = None
-                        if not feat_ids:
-                            feat_ids = group_id_to_feature_ids.get(group_id) or group_name_to_feature_ids.get(g.get("name", "").lower().strip())
+                            start = -1
+                            end = -1
+                        if start != -1 and end != -1 and end > start:
+                            return text[start:end+1]
+                        return text
 
-                        group_feature_id = None
-                        if feat_ids:
-                            if "," in feat_ids:
-                                group_feature_id = feat_ids.split(",")[0].strip()
+                    cleaned_output = extract_json_substring(ai_output)
+                    mutations = json.loads(cleaned_output, strict=False)
+
+                    # Import estimation metrics helpers
+                    from app.services.estimation_engine import _compute_task_complexity, _compute_effort
+
+                    # Keep track of group ID mappings to resolve duplicate milestone/group name additions
+                    group_id_mapping = {}
+                    existing_group_names = {g.name.lower().strip(): g.id for g in groups}
+
+                    # --- Process Group Mutations ---
+                    group_muts = mutations.get("group_mutations", [])
+                    for gm in group_muts:
+                        action = gm.get("action", "").upper()
+                        g_id = gm.get("id")
+                        if not g_id:
+                            continue
+
+                        if action == "DELETE":
+                            await db.task.delete_many(where={"groupId": g_id})
+                            await db.groupingtask.delete(where={"id": g_id})
+                        elif action == "ADD":
+                            g_name = gm.get("name") or "New Milestone"
+                            normalized_name = g_name.lower().strip()
+                            if normalized_name in existing_group_names:
+                                # Deduplicate: map the new group ID to the existing group ID
+                                group_id_mapping[g_id] = existing_group_names[normalized_name]
+                                logger.info("Deduplicated milestone group name '%s' from mutation ADD: mapped %s to existing %s", g_name, g_id, existing_group_names[normalized_name])
                             else:
-                                group_feature_id = feat_ids.strip()
+                                await db.groupingtask.create(
+                                    data={
+                                        "id": g_id,
+                                        "name": g_name,
+                                        "description": gm.get("description", ""),
+                                        "order": int(gm.get("order", 0)),
+                                        "projectId": project_id,
+                                    }
+                                )
+                                existing_group_names[normalized_name] = g_id
+                        elif action == "UPDATE":
+                            update_data = {}
+                            if "name" in gm:
+                                update_data["name"] = gm["name"]
+                            if "description" in gm:
+                                update_data["description"] = gm["description"]
+                            if "order" in gm:
+                                update_data["order"] = int(gm["order"])
 
-                        group_records.append({
-                            "id": group_id,
-                            "name": g.get("name") or "Unnamed Phase",
-                            "description": g.get("description", ""),
-                            "order": safe_int(g.get("order", idx)),
-                            "totalEffortHours": effort_sum if effort_sum > 0 else safe_float(g.get("totalEffortHours", g.get("total_effort_hours", 0.0))),
-                            "totalDurationDays": safe_float(g.get("totalDurationDays", g.get("total_duration_days", 0.0))),
-                            "projectId": project_id,
-                            "featureIds": feat_ids
-                        })
+                            if update_data:
+                                await db.groupingtask.update(
+                                    where={"id": g_id},
+                                    data=update_data,
+                                )
 
-                        for t_idx, t in enumerate(g_tasks):
-                            task_id = t.get("id") or str(uuid.uuid4())
-                            if task_id in inserted_task_ids:
-                                task_id = str(uuid.uuid4())
-                            inserted_task_ids.add(task_id)
-                            original_task = original_tasks_by_id.get(task_id)
-                            
+                    # --- Process Task Mutations ---
+                    task_muts = mutations.get("task_mutations", [])
+                    for tm in task_muts:
+                        action = tm.get("action", "").upper()
+                        t_id = tm.get("id")
+                        if not t_id:
+                            continue
+
+                        if action == "DELETE":
+                            await db.task.delete(where={"id": t_id})
+                        elif action == "ADD":
+                            g_id = tm.get("group_id") or tm.get("groupId")
+                            # Map group ID if we deduplicated the parent group name
+                            if g_id in group_id_mapping:
+                                g_id = group_id_mapping[g_id]
+
+                            if not g_id:
+                                if groups:
+                                    g_id = groups[0].id
+                                else:
+                                    continue
+
+                            title = tm.get("title") or "New Task"
+                            desc = tm.get("description") or ""
+                            est_hours = float(tm.get("estimatedHours") or tm.get("estimated_hours") or 4.0)
+                            deps_list = tm.get("dependencies", [])
+                            if not isinstance(deps_list, list):
+                                deps_list = [deps_list] if deps_list else []
+
+                            complexity = _compute_task_complexity(title, desc, len(deps_list))
+                            effort, duration = _compute_effort(est_hours, complexity, 6.0)
+
                             due_dt = None
-                            if t.get("dueDate"):
+                            if tm.get("dueDate"):
                                 try:
-                                    due_dt = datetime.fromisoformat(t["dueDate"])
+                                    due_dt = datetime.fromisoformat(tm["dueDate"])
                                 except Exception:
                                     pass
                             if not due_dt:
-                                if original_task and original_task.get("dueDate"):
-                                    try:
-                                        due_dt = datetime.fromisoformat(original_task["dueDate"])
-                                    except Exception:
-                                        due_dt = None
-                                if not due_dt:
-                                    due_dt = datetime.now(timezone.utc)
+                                due_dt = datetime.now(timezone.utc)
 
-                            start_dt = None
-                            if t.get("scheduledStart"):
-                                try:
-                                    start_dt = datetime.fromisoformat(t["scheduledStart"])
-                                except Exception:
-                                    pass
-                            if not start_dt and original_task and original_task.get("scheduledStart"):
-                                try:
-                                    start_dt = datetime.fromisoformat(original_task["scheduledStart"])
-                                except Exception:
-                                    pass
-
-                            end_dt = None
-                            if t.get("scheduledEnd"):
-                                try:
-                                    end_dt = datetime.fromisoformat(t["scheduledEnd"])
-                                except Exception:
-                                    pass
-                            if not end_dt and original_task and original_task.get("scheduledEnd"):
-                                try:
-                                    end_dt = datetime.fromisoformat(original_task["scheduledEnd"])
-                                except Exception:
-                                    pass
-
-                            title = t.get("title") or t.get("name") or t.get("task_title") or "Unnamed Task"
+                            await db.task.create(
+                                data={
+                                    "id": t_id,
+                                    "title": title,
+                                    "description": desc,
+                                    "order": int(tm.get("order", 0)),
+                                    "projectId": project_id,
+                                    "groupId": g_id,
+                                    "priority": tm.get("priority", "medium"),
+                                    "status": "pending",
+                                    "assignee": tm.get("assignee") or "Developer",
+                                    "assigneeAvatar": tm.get("assigneeAvatar"),
+                                    "dueDate": due_dt,
+                                    "estimatedHours": float(est_hours),
+                                    "complexityScore": float(complexity),
+                                    "effortHours": float(effort),
+                                    "durationDays": float(duration),
+                                    "dependencies": json.dumps(deps_list),
+                                }
+                            )
+                        elif action == "UPDATE":
+                            update_data = {}
+                            if "title" in tm:
+                                update_data["title"] = tm["title"]
+                            if "description" in tm:
+                                update_data["description"] = tm["description"]
+                            if "priority" in tm:
+                                update_data["priority"] = tm["priority"]
+                            if "assignee" in tm:
+                                update_data["assignee"] = tm["assignee"]
+                            if "assigneeAvatar" in tm:
+                                update_data["assigneeAvatar"] = tm["assigneeAvatar"]
+                            if "order" in tm:
+                                update_data["order"] = int(tm["order"])
                             
-                            # Strip any milestone/feature prefixes generated by the LLM, then prepending the original prefix back
-                            _, clean_title = extract_milestone_prefix(title)
-                            original_prefix = id_to_prefix.get(task_id)
-                            if not original_prefix:
-                                is_monolith = architecture_pattern in ("monolith", "monolithic")
-                                if is_monolith:
-                                    # For new tasks in monolithic project, reconstruct prefix using featureRequestId
-                                    f_id = t.get("featureRequestId") or t.get("feature_request_id")
-                                    if isinstance(f_id, str):
-                                        f_id = f_id.replace("[", "").replace("]", "").replace('"', "").replace("'", "").strip()
-                                    matched_f = next((f for f in features if f.id == f_id), None) if f_id else None
-                                    if matched_f:
-                                        original_prefix = f"[Feature: {matched_f.title}] "
-                                    else:
-                                        original_prefix = next((p for p in id_to_prefix.values() if p), "")
-                                else:
-                                    # Microservices project: use Milestone prefix fallback
-                                    original_prefix = next((p for p in id_to_prefix.values() if p), "[Milestone 2: Backend API & Core Logic] ")
-                            final_title = f"{original_prefix}{clean_title}"
+                            target_gid = tm.get("group_id") or tm.get("groupId")
+                            if target_gid:
+                                if target_gid in group_id_mapping:
+                                    target_gid = group_id_mapping[target_gid]
+                                update_data["groupId"] = target_gid
 
-                            desc = t.get("description") or t.get("content") or t.get("task_description") or ""
+                            if "dependencies" in tm:
+                                deps_list = tm["dependencies"]
+                                if not isinstance(deps_list, list):
+                                    deps_list = [deps_list] if deps_list else []
+                                update_data["dependencies"] = json.dumps(deps_list)
 
-                            deps = t.get("dependencies")
-                            if deps is not None:
-                                if isinstance(deps, list):
-                                    deps = json.dumps(deps)
-                                elif isinstance(deps, str):
-                                    if not (deps.startswith('[') and deps.endswith(']')):
-                                        deps = json.dumps([deps])
-                            elif original_task and original_task.get("dependencies") is not None:
-                                deps = original_task.get("dependencies")
+                            existing_task = await db.task.find_unique(where={"id": t_id})
+                            if existing_task:
+                                title_val = tm.get("title", existing_task.title)
+                                desc_val = tm.get("description", existing_task.description or "")
+                                hours_val = float(tm.get("estimatedHours", tm.get("estimated_hours", existing_task.estimatedHours or 4.0)))
+                                
+                                deps_val = tm.get("dependencies", json.loads(existing_task.dependencies) if existing_task.dependencies else [])
+                                if not isinstance(deps_val, list):
+                                    deps_val = [deps_val] if deps_val else []
 
-                            # Resolve featureRequestId
-                            feat_id = t.get("featureRequestId") or t.get("feature_request_id")
-                            if isinstance(feat_id, str):
-                                feat_id = feat_id.replace("[", "").replace("]", "").replace('"', "").replace("'", "").strip()
-                            if not feat_id:
-                                feat_id = id_to_feature_req.get(task_id) or title_to_feature_req.get(title.lower().strip())
-                            if not feat_id:
-                                feat_id = group_feature_id or default_feature_req_id
-                            if isinstance(feat_id, str):
-                                feat_id = feat_id.replace("[", "").replace("]", "").replace('"', "").replace("'", "").strip()
+                                complexity = _compute_task_complexity(title_val, desc_val, len(deps_val))
+                                effort, duration = _compute_effort(hours_val, complexity, 6.0)
 
-                            task_records.append({
-                                "id": task_id,
-                                "title": final_title,
-                                "description": desc,
-                                "assignee": t.get("assignee", "Developer"),
-                                "assigneeAvatar": t.get("assigneeAvatar"),
-                                "priority": t.get("priority", "medium"),
-                                "dueDate": due_dt,
-                                "employeeId": t.get("employeeId"),
-                                "tags": t.get("tags", []),
-                                "status": t.get("status", "pending"),
-                                "projectId": project_id,
-                                "groupId": group_id,
-                                "featureRequestId": feat_id,
-                                "order": safe_int(t.get("order", t_idx)),
-                                "dependencies": deps,
-                                "estimatedHours": safe_float(t.get("estimatedHours", t.get("estimated_hours", 0.0))),
-                                "complexityScore": safe_float(t.get("complexityScore", 0.0)),
-                                "effortHours": safe_float(t.get("effortHours", t.get("estimatedHours", 0.0))),
-                                "durationDays": safe_float(t.get("durationDays", 0.0)),
-                                "scheduledStart": start_dt,
-                                "scheduledEnd": end_dt
-                            })
+                                update_data["estimatedHours"] = hours_val
+                                update_data["complexityScore"] = float(complexity)
+                                update_data["effortHours"] = float(effort)
+                                update_data["durationDays"] = float(duration)
 
-                    # Ensure all group IDs are globally unique to avoid constraint violations
-                    existing_groups = await db.groupingtask.find_many()
-                    db_group_ids = {eg.id for eg in existing_groups}
-                    group_id_mapping = {}
-                    seen_group_ids = set()
-                    
-                    for gr in group_records:
-                        old_gid = gr["id"]
-                        if old_gid in seen_group_ids or old_gid in db_group_ids:
-                            new_gid = str(uuid.uuid4())
-                            group_id_mapping[old_gid] = new_gid
-                            gr["id"] = new_gid
-                            logger.warning("Resolved duplicate group ID: %s -> %s", old_gid, new_gid)
-                        seen_group_ids.add(gr["id"])
+                            if update_data:
+                                await db.task.update(
+                                    where={"id": t_id},
+                                    data=update_data,
+                                )
 
-                    # Ensure all task IDs are globally unique (internal and external)
-                    existing_tasks = await db.task.find_many()
-                    db_task_ids = {et.id for et in existing_tasks}
-                    seen_task_ids = set()
-                    task_id_mapping = {}
-                    
-                    for tr in task_records:
-                        old_tid = tr["id"]
-                        # Update the task's groupId if its parent group ID changed
-                        if tr.get("groupId") in group_id_mapping:
-                            tr["groupId"] = group_id_mapping[tr["groupId"]]
-                            
-                        if old_tid in seen_task_ids or old_tid in db_task_ids:
-                            new_tid = str(uuid.uuid4())
-                            task_id_mapping[old_tid] = new_tid
-                            tr["id"] = new_tid
-                            logger.warning("Resolved duplicate task ID: %s -> %s", old_tid, new_tid)
-                        seen_task_ids.add(tr["id"])
-                        
-                    # Rewrite dependencies to match any task IDs that were regenerated
-                    for tr in task_records:
-                        deps_str = tr.get("dependencies")
-                        if deps_str:
-                            try:
-                                deps_list = json.loads(deps_str)
-                                if isinstance(deps_list, list):
-                                    updated_deps = [task_id_mapping.get(d, d) for d in deps_list]
-                                    tr["dependencies"] = json.dumps(updated_deps)
-                            except Exception:
-                                pass
+                    # Recalculate total effort and duration for all groups in the project
+                    all_project_tasks = await db.task.find_many(where={"projectId": project_id})
+                    updated_groups = await db.groupingtask.find_many(where={"projectId": project_id})
+                    for g in updated_groups:
+                        g_tasks = [t for t in all_project_tasks if t.groupId == g.id]
+                        effort_sum = sum(t.effortHours or 0.0 for t in g_tasks)
+                        duration_max = max((t.durationDays or 0.0) for t in g_tasks) if g_tasks else 0.0
+                        await db.groupingtask.update(
+                            where={"id": g.id},
+                            data={
+                                "totalEffortHours": effort_sum,
+                                "totalDurationDays": duration_max
+                            }
+                        )
 
-                    if group_records:
-                        await db.groupingtask.create_many(data=group_records)
-                    if task_records:
-                        await db.task.create_many(data=task_records)
-                    
-                    # Recalculate schedule only if the enhancement changed task timing or dependencies.
-                    if schedule_refresh_needed:
+                    # Downstream schedule realignment
+                    try:
                         from app.services.schedule_engine import generate_schedule
                         await generate_schedule(project_id, reindex=True)
-                    else:
-                        logger.info(
-                            "Skipped schedule regeneration for WBS enhancement on project %s because only non-scheduling fields changed",
-                            project_id,
-                        )
+                    except Exception as se:
+                        logger.error("Failed to automatically reschedule during WBS diff enhancement: %s", se)
 
                 except Exception as loop_err:
                     import traceback
                     tb_str = traceback.format_exc()
-                    logger.error("Error during WBS reconstruction: %s\n%s", loop_err, tb_str)
+                    logger.error("Error during WBS diff reconstruction: %s\n%s", loop_err, tb_str)
                     await _rollback_backup(project_id, body.section_type, body.section_key)
                     raise HTTPException(
                         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail=f"WBS enhancement reconstruction failed: {loop_err}. Traceback: {tb_str}. Original WBS has been restored.",
+                        detail=f"WBS diff enhancement reconstruction failed: {loop_err}. Traceback: {tb_str}. Original WBS has been restored.",
                     )
 
             else:
@@ -1052,6 +881,11 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
 
         # 5. Clear project cache to invalidate stale in-memory states
         clear_project_cache(project_id)
+        try:
+            from app.db.redis import invalidate_project_cache
+            await invalidate_project_cache(project_id)
+        except Exception as cache_err:
+            logger.warning("Failed to invalidate Redis cache during WBS enhancement: %s", cache_err)
 
         return {
             "status": "success",
@@ -1223,6 +1057,11 @@ async def revert_section(project_id: str, body: RevertSectionRequest):
                 logger.error("Failed to automatically reschedule during resources revert: %s", se)
 
         clear_project_cache(project_id)
+        try:
+            from app.db.redis import invalidate_project_cache
+            await invalidate_project_cache(project_id)
+        except Exception as cache_err:
+            logger.warning("Failed to invalidate Redis cache during WBS revert: %s", cache_err)
         return {"status": "success", "message": "Section reverted to original state."}
 
     except HTTPException:

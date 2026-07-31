@@ -103,19 +103,19 @@ const api = {
     },
 
     async getEstimates(id) {
-        const res = await fetch(`${API_BASE_URL}/${id}/estimate`);
+        const res = await fetch(`${API_BASE_URL}/${id}/estimate?t=${Date.now()}`);
         if (!res.ok) throw new Error('Failed to get estimates');
         return res.json();
     },
 
     async getSchedule(id) {
-        const res = await fetch(`${API_BASE_URL}/${id}/schedule`);
+        const res = await fetch(`${API_BASE_URL}/${id}/schedule?t=${Date.now()}`);
         if (!res.ok) throw new Error('Failed to get schedule');
         return res.json();
     },
 
     async getResourcePlan(id) {
-        const res = await fetch(`${API_BASE_URL}/${id}/resource-plan`);
+        const res = await fetch(`${API_BASE_URL}/${id}/resource-plan?t=${Date.now()}`);
         if (!res.ok) throw new Error('Failed to get resource plan');
         return res.json();
     },
@@ -173,7 +173,7 @@ const api = {
     },
 
     async getWBSTasks(id) {
-        const res = await fetch(`${API_BASE_URL}/${id}/wbs/tasks`);
+        const res = await fetch(`${API_BASE_URL}/${id}/wbs/tasks?t=${Date.now()}`);
         if (!res.ok) throw new Error('Failed to get WBS tasks');
         return res.json();
     },
