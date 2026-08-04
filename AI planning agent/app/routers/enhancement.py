@@ -502,11 +502,18 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                     # Ensure backup exists before mutating anything
                     await ensure_backup(project_id, body.section_type, body.section_key)
 
+                    available_groups_text = "\n".join(
+                        f"  - Milestone: \"{g.name}\" -> Use group_id: \"{g.id}\""
+                        for g in groups
+                    )
+
                     # 2. Query AI to generate selective mutations
                     wbs_diff_prompt = (
                         f"You are an Expert Project Architect and Technical Editor.\n"
                         f"Analyze the current WBS structure and the user's instructions, then output a JSON object describing selective mutations (ADD/UPDATE/DELETE) to perform.\n\n"
                         f"Current WBS Context:\n{json.dumps(wbs_context, indent=2)}\n\n"
+                        f"Available Milestone Groups to choose from for task assignment:\n"
+                        f"{available_groups_text}\n\n"
                         f"User's Editing Instructions:\n{enriched_instruction}\n\n"
                         f"CRITICAL DIRECTIVES:\n"
                         f"- Output ONLY a valid JSON object matching the schema below. Do not include markdown code blocks or conversational chatter:\n"
@@ -518,10 +525,15 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                         f"    {{ \"action\": \"ADD\"|\"UPDATE\"|\"DELETE\", \"id\": \"task_id\", \"group_id\": \"group_id\", \"title\": \"...\", \"description\": \"...\", \"estimatedHours\": 4.0, \"priority\": \"medium\", \"dependencies\": [\"dep_task_id\"] }}\n"
                         f"  ]\n"
                         f"}}\n"
-                        f"- Group Creation Restraints:\n"
+                        f"- Group & Milestone Restraints:\n"
                         f"  - DO NOT add new groups in 'group_mutations' unless the user's instruction explicitly requests to create a new phase/milestone.\n"
-                        f"  - All new tasks MUST be mapped to the 'group_id' of the most relevant existing milestone group (for example, if adding logging or deployment tasks, put them under the existing 'Milestone 5: Deployment & Go-Live' group ID).\n"
-                        f"  - Do not create custom or descriptive milestone group names like 'Deployment & Go-Live Part: ...'. Reuse the exact existing IDs.\n"
+                        f"  - DO NOT rename, modify, or change the 'order' of any existing groups/milestones. Keep them exactly as they are.\n"
+                        f"  - All new tasks MUST be mapped to the 'group_id' of the most relevant existing milestone group listed above.\n"
+                        f"  - Map tasks by matching their theme to the existing milestone names (e.g., map backend/database/API tasks to milestones mentioning 'backend' or 'api'; map deployment/DevOps tasks to milestones mentioning 'deployment' or 'go-live').\n"
+                        f"  - If the user instruction specifies a section (e.g. 'in the backend part' or 'in deployment'), locate the existing milestone group whose name matches that role and reuse its ID. Do not create new milestone groups. \n"
+                        f"- Task Sequencing and Order:\n"
+                        f"  - When adding a task, you MUST specify a logical 'order' value (relative to the existing tasks in that group) so it is placed correctly in the sequence rather than floating to the beginning (order 0).\n"
+                        f"  - Look at the order of existing tasks in the chosen milestone. Position the new task logically. For example, if it should go at the end of the milestone, give it an 'order' value greater than the highest task order in that milestone (e.g. if the last task is order 24, set the new task's order to 25).\n"
                         f"- Actions:\n"
                         f"  - ADD: Create a new task. Generate a valid random UUID for the new 'id'.\n"
                         f"  - UPDATE: Modify an existing group or task. Specify 'id' and only the fields to change.\n"

@@ -155,12 +155,6 @@ async def list_projects() -> list[ProjectResponse]:
         projects = await db.project.find_many(
             include={
                 "projectInfo": True,
-                "planDocs": True,
-                "docs": True,
-                "featureRequests": True,
-                "technologies": True,
-                "riskBlockages": True,
-                "resourceAllocations": True,
                 "groupingTasks": {"include": {"tasks": True}},
             },
             order={"createdAt": "desc"},

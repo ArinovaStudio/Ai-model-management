@@ -6,7 +6,7 @@ from prisma import Prisma
 
 logger = logging.getLogger(__name__)
 
-db = Prisma(auto_register=True)
+db = Prisma(auto_register=True, http={"timeout": 60.0})
 
 # In-memory cache for loaded projects during the execution of a pipeline
 _project_cache: Dict[str, Tuple[float, Any]] = {}
