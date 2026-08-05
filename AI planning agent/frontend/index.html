@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Planning Agent - Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./css/index.css">
+</head>
+<body>
+    <div class="container">
+        <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3rem;">
+            <h2>AI Planning Agent</h2>
+            <button class="btn btn-primary" onclick="dashboard.openNewProjectModal()">+ New Project</button>
+        </header>
+
+        <main>
+            <h3 class="mb-4">Your Projects</h3>
+            <div id="project-grid" class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                <!-- Projects injected here -->
+            </div>
+            
+            <div id="empty-state" class="text-center mt-4" style="display: none;">
+                <p style="color: var(--color-sedate-gray); margin-bottom: 1rem;">No projects found. Create one to get started!</p>
+                <button class="btn btn-primary" onclick="dashboard.openNewProjectModal()">Create First Project</button>
+            </div>
+        </main>
+    </div>
+
+    <!-- New Project Modal -->
+    <div id="new-project-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Create New Project</h3>
+                <button class="modal-close" onclick="dashboard.closeNewProjectModal()">&times;</button>
+            </div>
+            <form id="new-project-form" onsubmit="dashboard.handleCreateProject(event)">
+                <div class="form-group">
+                    <label class="form-label">Project Name</label>
+                    <input type="text" id="project-name" class="form-input" required placeholder="e.g. E-Commerce Platform">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Budget ($)</label>
+                    <input type="number" id="project-budget" class="form-input" required placeholder="50000">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Client Name</label>
+                    <input type="text" id="project-client" class="form-input" required placeholder="Acme Corp">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Project Type</label>
+                    <input type="text" id="project-type" class="form-input" required placeholder="Web Application">
+                </div>
+                <button type="submit" id="submit-btn" class="btn btn-primary mt-2" style="width: 100%;">Create Project</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="./js/api.js"></script>
+    <script src="./js/dashboard.js"></script>
+</body>
+</html>
