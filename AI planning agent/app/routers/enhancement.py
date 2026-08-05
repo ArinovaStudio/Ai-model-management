@@ -308,6 +308,23 @@ class SectionEnhanceRequest(BaseModel):
     user_instruction: str
     current_content: str
 
+def extract_json_substring(text: str) -> str:
+    start_idx_obj = text.find("{")
+    start_idx_arr = text.find("[")
+    if start_idx_obj != -1 and (start_idx_arr == -1 or start_idx_obj < start_idx_arr):
+        start = start_idx_obj
+        end = text.rfind("}")
+    elif start_idx_arr != -1:
+        start = start_idx_arr
+        end = text.rfind("]")
+    else:
+        start = -1
+        end = -1
+    if start != -1 and end != -1 and end > start:
+        return text[start:end+1]
+    return text
+
+
 
 @router.post("")
 async def enhance_section(project_id: str, body: SectionEnhanceRequest):
@@ -548,22 +565,6 @@ async def enhance_section(project_id: str, body: SectionEnhanceRequest):
                     )
                     ai_output = ai_output.strip()
 
-                    # Extract JSON substring robustly to strip conversational prefixes/suffixes
-                    def extract_json_substring(text: str) -> str:
-                        start_idx_obj = text.find("{")
-                        start_idx_arr = text.find("[")
-                        if start_idx_obj != -1 and (start_idx_arr == -1 or start_idx_obj < start_idx_arr):
-                            start = start_idx_obj
-                            end = text.rfind("}")
-                        elif start_idx_arr != -1:
-                            start = start_idx_arr
-                            end = text.rfind("]")
-                        else:
-                            start = -1
-                            end = -1
-                        if start != -1 and end != -1 and end > start:
-                            return text[start:end+1]
-                        return text
 
                     cleaned_output = extract_json_substring(ai_output)
                     mutations = json.loads(cleaned_output, strict=False)
