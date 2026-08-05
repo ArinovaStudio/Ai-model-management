@@ -1,9 +1,11 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
-# Install system dependencies
+# Install system dependencies (build-essential, curl, and SSL/CA support for secure Neon cloud DB connections)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    ca-certificates \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -16,8 +18,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Generate Prisma client for database access
-RUN prisma generate
+# Generate Prisma client for database access (run via python module namespace)
+RUN python -m prisma generate
 
 # Expose backend port
 EXPOSE 8000

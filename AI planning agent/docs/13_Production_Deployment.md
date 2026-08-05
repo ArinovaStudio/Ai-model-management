@@ -1,98 +1,291 @@
-# 13. Production Deployment Guide
+# 13. Production-Grade Deployment Manual & Roadmap
 
-Transitioning the AI Planning Agent from a local development environment to a production-grade infrastructure requires shifting from lightweight runtime servers to containerized, high-availability setups.
+This guide provides the complete architectural blueprint, container configuration, network security guidelines, and launch roadmap for transitioning the **AI Planning Agent** from a local developer workstation to a highly available, secure, and production-ready environment.
 
 ---
 
 ## 1. Production Architecture Overview
-In production, the application is divided into three scalable tiers:
 
-```
-[ Frontend: CDN / Static Storage ]
-               │
-               ▼  (HTTP REST)
-[ Backend Container: FastAPI + Gunicorn/Uvicorn ]  <──>  [ Relational DB: Neon PostgreSQL ]
-               │
-               ▼  (HTTP API / SSL)
-[ AI Model Container: Dedicated GPU VM / Private Ollama Endpoint ]
+In production, the application is divided into highly isolated, scalable tiers. The frontend is served via high-speed edge CDNs or cached proxies, while the backend FastAPI application delegates state to external cloud providers (Neon PostgreSQL and managed Redis) and queries a dedicated GPU VM for local LLM execution.
+
+### Architectural Blueprint:
+
+```mermaid
+graph TD
+    User([User Web Browser]) -->|HTTPS: 443| Nginx[Nginx Reverse Proxy / SSL Termination]
+    
+    subgraph Containerized VPC Boundary
+        Nginx -->|Route: /| FE[Frontend Container: Nginx Alpine]
+        Nginx -->|Route: /api/v1| BE[Backend Container: FastAPI Uvicorn]
+        BE -->|Redis TCP: 6379| Redis[Redis Caching Container / alpine]
+    end
+
+    subgraph Managed Cloud Resources
+        BE -->|SSL TCP: 5432| Neon[(Neon Serverless PostgreSQL)]
+        BE -->|HTTPS API: 11434| GPUHost[GPU VM Host: Ollama LLM / L4 GPU]
+    end
+
+    style Neon fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px;
+    style GPUHost fill:#efebe9,stroke:#8d6e63,stroke-width:2px;
+    style Redis fill:#ffe0b2,stroke:#ff9800,stroke-width:2px;
 ```
 
 ---
 
-## 2. Containerization (Dockerfile Blueprint)
-To run the backend inside a production container:
+## 2. Containerization Blueprints
+
+### A. Backend `Dockerfile` (`./Dockerfile`)
+The backend uses a modernized Python 3.12-slim base image. It explicitly installs SSL certificates and OpenSSL to handle secure connections to the Neon Tech PostgreSQL cloud service.
 
 ```dockerfile
-# Dockerfile
-FROM python:3.11-slim
+FROM python:3.12-slim
 
-WORKDIR /app
-
-# Install system dependencies needed for compilation
+# Install system dependencies (build-essential, curl, and SSL/CA support for secure cloud DB connections)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    curl \
+    ca-certificates \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+# Set working directory
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy application code
 COPY . .
 
-# Generate Prisma Client Python bindings
-RUN prisma generate
+# Generate Prisma client for database access (run via python module namespace)
+RUN python -m prisma generate
 
+# Expose backend port
 EXPOSE 8000
 
-# Start server using Uvicorn workers
+# Run FastAPI server with multiple workers for concurrency
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
 ```
 
----
+### B. Frontend `Dockerfile` (`./frontend/Dockerfile`)
+The frontend is built on the high-performance Nginx Alpine image, copying static HTML, JS, and CSS files directly into Nginx's default serving directory.
 
-## 3. High-Performance LLM Deployment (Gpu Hosting)
-Running Ollama on a CPU local server is highly latent. For production:
+```dockerfile
+FROM nginx:alpine
 
-1. **Dedicated VM Host:** Deploy Ollama on a cloud VM instance (AWS EC2, Google Cloud Compute Engine, or RunPod) equipped with an NVIDIA GPU (e.g. A10G, T4, or L4).
-2. **Concurrency Configuration:** Start Ollama with environment variables tuned for concurrent requests:
-   * `OLLAMA_NUM_PARALLEL=4`: Allows processing multiple planner requests in parallel.
-   * `OLLAMA_MAX_LOADED_MODELS=1`: Pin the target model (`llama3`) in GPU memory to prevent model reload latency.
+# Copy the static frontend files to Nginx's default public directory
+COPY . /usr/share/nginx/html
 
----
+# Expose port 80
+EXPOSE 80
 
-## 4. Serving the Frontend
-* **Do NOT use `python -m http.server` in production.** It is a single-threaded blocker.
-* **CDNs:** Host the static `frontend/` files on a Content Delivery Network (Vercel, Netlify, Cloudflare Pages, or Google Cloud Storage with CDN routing).
-* **Reverse Proxy:** Alternatively, serve them via an Nginx block that proxies API requests:
-  ```nginx
-  server {
-      listen 80;
-      server_name planner.yourdomain.com;
-
-      # Serve static frontend assets
-      location / {
-          root /usr/share/nginx/html;
-          index index.html workspace.html;
-      }
-
-      # Proxy backend requests to FastAPI
-      location /api/v1/ {
-          proxy_pass http://localhost:8000;
-          proxy_set_header Host $host;
-          proxy_set_header X-Real-IP $remote_addr;
-      }
-  }
-  ```
+# Run Nginx in the foreground
+CMD ["nginx", "-g", "daemon off;"]
+```
 
 ---
 
-## 5. DB Migration Pipeline
-For continuous integration and delivery (CI/CD):
-1. **Never run `prisma db push` in production.** It can lead to accidental schema adjustments or data truncation.
-2. **Prisma Migrations:** Generate and track SQL migration files:
+## 3. Ephemeral Composition (`docker-compose.yml`)
+
+The compose setup defines the networking, environment mapping, and resource limits for local container environments:
+
+```yaml
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai_planning_backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    # Allows container to resolve host machine ports (e.g. host's Ollama model port)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai_planning_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ai_planning_frontend
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - redis
+
+volumes:
+  redis_data:
+```
+
+---
+
+## 4. Production Environment Configuration (`.env`)
+
+In production, environment variables must be managed securely (e.g., via AWS Secrets Manager or HashiCorp Vault). Never check raw secrets into source control.
+
+| Environment Variable | Production Value / Description | Security Recommendation |
+| :--- | :--- | :--- |
+| `DATABASE_URL` | `postgresql://user:pass@ep-host.aws.neon.tech/db?sslmode=require` | Use SSL required mode. |
+| `REDIS_URL` | `redis://:strong_redis_password@redis_host:6379/0` | Add auth password to Redis connections. |
+| `OLLAMA_BASE_URL` | `https://ollama.gpu.private.domain:11434` | Secure endpoint behind a private VPC connection. |
+| `OLLAMA_MODEL` | `qwen2.5-coder:7b` (or 14b / 32b for high accuracy) | Pin model to exact tags to prevent updates. |
+| `LOG_LEVEL` | `WARNING` or `ERROR` (suppress debug info) | Reduces logging costs and standard disk write bloat. |
+
+---
+
+## 5. High-Performance GPU Sizing for local LLM (Ollama)
+
+To run the planning agent at peak speed (sub-second generations instead of 30-second delays on CPUs), the Ollama model must be hosted on dedicated GPU infrastructure.
+
+### Hardware Sizing Matrix:
+* **Recommended GPU Instance:** AWS `g5.xlarge` (NVIDIA A10G, 24GB VRAM) or GCP `g2-standard-4` (NVIDIA L4, 24GB VRAM).
+* **Model VRAM Sizing:**
+  * For 7B models (e.g. `qwen2.5-coder:7b`): Requires ~6GB VRAM.
+  * For 14B models (e.g. `qwen2.5-coder:14b`): Requires ~12GB VRAM.
+  * For 32B models (e.g. `qwen2.5-coder:32b`): Requires ~24GB VRAM.
+
+### Concurrency Tuning on GPU VM:
+Launch Ollama on the VM host with these environment variables configured in its service manager:
+```bash
+# Allow Ollama to queue and run up to 4 parallel planner requests concurrently
+OLLAMA_NUM_PARALLEL=4
+
+# Keep the model pinned in GPU memory to eliminate initial load delays
+OLLAMA_MAX_LOADED_MODELS=1
+```
+
+---
+
+## 6. Nginx Proxy & Let's Encrypt SSL Configuration
+
+For production traffic, put the application behind Nginx to terminate SSL/TLS certificates and establish HTTP headers protection.
+
+```nginx
+# /etc/nginx/sites-available/planner.conf
+server {
+    listen 80;
+    server_name planner.yourdomain.com;
+    
+    # Redirect all HTTP traffic to HTTPS securely
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name planner.yourdomain.com;
+
+    # SSL Certificates (Managed via certbot let's encrypt)
+    ssl_certificate /etc/letsencrypt/live/planner.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/planner.yourdomain.com/privkey.pem;
+    
+    # SSL Hardening Config
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # Security Headers
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;" always;
+
+    # Frontend Static Server
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Backend API Proxy Router
+    location /api/v1/ {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Increase timeouts for slow LLM planning requests
+        proxy_read_timeout 180s;
+        proxy_connect_timeout 180s;
+    }
+}
+```
+
+---
+
+## 7. CI/CD Database Migration Pipeline
+
+To deploy schema changes without risking data loss or downtime:
+
+1. **Local Migration Creation (Dev):**
    ```bash
-   prisma migrate dev --name init
+   prisma migrate dev --name add_new_fields
    ```
-3. **CI/CD Execution:** In your CD pipeline (e.g., GitHub Actions), apply pending migrations before launching the new backend container:
-   ```bash
-   prisma migrate deploy
+2. **Never use `prisma db push` in production.** It does not track historical changes and can truncate columns.
+3. **CI Deployment (GitHub Actions / GitLab CI):**
+   Add a migration step to your deployment pipeline that runs before the backend container is deployed:
+   ```yaml
+   - name: Run Prisma Migrations
+     env:
+       DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+     run: |
+       npx prisma migrate deploy
    ```
+
+---
+
+## 8. Deployment Roadmap Checklist
+
+Follow this checklist for a successful go-live:
+
+```mermaid
+gantt
+    title Production Go-Live Roadmap
+    dateFormat  YYYY-MM-DD
+    section Stage 1: Setup
+    Provision Cloud GPU instance          :active, s1, 2026-08-05, 2d
+    Initialize Neon DB & Apply Schemas    :s2, after s1, 1d
+    section Stage 2: Packaging
+    Compile Backend & Frontend Images     :s3, after s2, 1d
+    Verify Redis & SSL Handshakes         :s4, after s3, 1d
+    section Stage 3: Routing
+    Setup Nginx Server & SSL Certificates :s5, after s4, 1d
+    section Stage 4: Go-Live
+    Run E2E Validation Tests              :s6, after s5, 1d
+    Point DNS to production server        :s7, after s6, 1d
+```
+
+- [ ] **Step 1:** Spin up the Cloud GPU VM and download the target model (`ollama run qwen2.5-coder:7b`).
+- [ ] **Step 2:** Clone the project repository and create the production `.env` configuration.
+- [ ] **Step 3:** Apply database migrations using `npx prisma migrate deploy` targeting Neon.
+- [ ] **Step 4:** Build the Docker images using `docker-compose build`.
+- [ ] **Step 5:** Start the backend, redis, and frontend services (`docker-compose up -d`).
+- [ ] **Step 6:** Configure Nginx with domain names and Let's Encrypt SSL.
+- [ ] **Step 7:** Run smoke tests in the workspace browser console to verify WBS generations, manual edits, and AI enhancements.
