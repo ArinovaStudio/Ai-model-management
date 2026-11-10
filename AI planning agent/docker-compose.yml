@@ -1,25 +1,28 @@
-version: '3.8'
-
 services:
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: ai_planning_backend
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
+  # -------------------------------------------------------------
+  # 1. DATABASE: Local PostgreSQL Container
+  # -------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: ai_planning_db
     environment:
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      - redis
-    # This allows the backend to reach Ollama if it's running locally on the host machine
-    # host.docker.internal works on Docker Desktop (Windows/Mac)
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ai_planning
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_planning"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
+  # -------------------------------------------------------------
+  # 2. CACHE: Redis Container
+  # -------------------------------------------------------------
   redis:
     image: redis:7-alpine
     container_name: ai_planning_redis
@@ -27,6 +30,77 @@ services:
       - "6379:6379"
     restart: unless-stopped
 
+  # -------------------------------------------------------------
+  # 3. LLM ENGINE: Embedded Ollama Container
+  # -------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ai_planning_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # -------------------------------------------------------------
+  # 4. MODEL AUTO-LOADER: One-Shot Initialization Sidecar
+  # -------------------------------------------------------------
+  ollama-model-puller:
+    image: curlimages/curl:latest
+    container_name: ai_planning_model_puller
+    depends_on:
+      - ollama
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "
+      echo 'Waiting for Ollama service to start...';
+      until curl -s http://ollama:11434/api/tags > /dev/null; do sleep 2; done;
+      echo 'Pulling llama3:8b model (this may take a few moments on first run)...';
+      curl -s -X POST http://ollama:11434/api/pull -d '{\"name\": \"llama3:8b\"}';
+      echo 'Pulling nomic-embed-text embedding model...';
+      curl -s -X POST http://ollama:11434/api/pull -d '{\"name\": \"nomic-embed-text\"}';
+      echo 'Models loaded successfully into persistent volume.';
+      "
+
+  # -------------------------------------------------------------
+  # 5. BACKEND: FastAPI Application
+  # -------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai_planning_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@db:5432/ai_planning?sslmode=disable
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3:8b
+      - EMBEDDING_MODEL=nomic-embed-text
+      - LOG_LEVEL=INFO
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_started
+    command: >
+      sh -c "python -m prisma db push && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    restart: unless-stopped
+
+  # -------------------------------------------------------------
+  # 6. FRONTEND: Nginx with Reverse Proxy
+  # -------------------------------------------------------------
   frontend:
     build:
       context: ./frontend
@@ -34,7 +108,11 @@ services:
     container_name: ai_planning_frontend
     ports:
       - "3000:80"
-    restart: unless-stopped
     depends_on:
       - backend
       - redis
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  ollama_models:
