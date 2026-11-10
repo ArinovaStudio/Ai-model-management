@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingService:
     def __init__(self) -> None:
-        self.client = AsyncClient(host="http://localhost:11434")
+        self.client = AsyncClient(host=settings.OLLAMA_BASE_URL)
         self.model = settings.EMBEDDING_MODEL
 
     async def generate_embedding(self, text: str) -> Optional[list[float]]:

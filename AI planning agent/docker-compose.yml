@@ -53,22 +53,25 @@ services:
   # 4. MODEL AUTO-LOADER: One-Shot Initialization Sidecar
   # -------------------------------------------------------------
   ollama-model-puller:
-    image: curlimages/curl:latest
+    image: ollama/ollama:latest
     container_name: ai_planning_model_puller
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
     depends_on:
       - ollama
     restart: "no"
     entrypoint: ["/bin/sh", "-c"]
-    command: >
-      "
-      echo 'Waiting for Ollama service to start...';
-      until curl -s http://ollama:11434/api/tags > /dev/null; do sleep 2; done;
-      echo 'Pulling llama3:8b model (this may take a few moments on first run)...';
-      curl -s -X POST http://ollama:11434/api/pull -d '{\"name\": \"llama3:8b\"}';
-      echo 'Pulling nomic-embed-text embedding model...';
-      curl -s -X POST http://ollama:11434/api/pull -d '{\"name\": \"nomic-embed-text\"}';
-      echo 'Models loaded successfully into persistent volume.';
-      "
+    command:
+      - |
+        echo "Waiting for Ollama service to start..."
+        while ! ollama list > /dev/null 2>&1; do
+          sleep 2
+        done
+        echo "Pulling llama3:8b model (this may take a few moments on first run)..."
+        ollama pull llama3:8b
+        echo "Pulling nomic-embed-text embedding model..."
+        ollama pull nomic-embed-text
+        echo "Models loaded successfully into persistent volume."
 
   # -------------------------------------------------------------
   # 5. BACKEND: FastAPI Application
