@@ -1,6 +1,9 @@
 FROM nginx:alpine
 
-# Copy the frontend files to Nginx's default public directory
+# Copy custom Nginx configuration with API reverse proxy
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy the frontend files to Nginx's public directory
 COPY . /usr/share/nginx/html
 
 # Expose port 80
