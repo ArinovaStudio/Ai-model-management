@@ -8,6 +8,7 @@
     "build": "prisma generate && tsc",
     "start": "node dist/server.js",
     "generate": "prisma generate",
+    "docker:up": "docker network create arinova_shared_net 2>nul || ver>nul && docker-compose up -d",
     "daemon": "tsx src/ai/server.ts"
   },
   "dependencies": {
