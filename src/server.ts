@@ -18,6 +18,7 @@ import { execute } from "./ai/executor";
 import { LOW_RISK_POLICY } from "./lib/agent-api";
 import { getProjectGroups } from "./lib/projectGroups";
 import { formatTelemetryEpisode, exportSftDataset } from "./ai/dataset-formatter";
+import { triggerActiveAllocations } from "./ai/events";
 
 const app = express();
 const PORT = process.env.PORT || process.env.BRAIN_PORT || 5005;
@@ -72,6 +73,12 @@ app.post("/api/agent/stealth-policy", async (req: Request, res: Response) => {
       modeType: modeType ?? "AUTO",
       selectedTaskIds: Array.isArray(selectedTaskIds) ? selectedTaskIds : [],
     });
+
+    if (Boolean(isActive)) {
+      void triggerActiveAllocations(projectId).catch((err) => {
+        logger.warn(`[BRAIN-API] Background active allocation kickoff failed for ${projectId}: ${err?.message}`);
+      });
+    }
 
     res.json({ success: true, message: "Stealth policy updated successfully" });
   } catch (err: any) {
