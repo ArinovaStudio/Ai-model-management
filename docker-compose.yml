@@ -1,0 +1,99 @@
+services:
+  # ---------------------------------------------------------------------------
+  # 1. Unified Open Ollama LLM Engine (Shared across AI Brain & Planning Agent)
+  # ---------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: arinova_unified_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - arinova_shared_net
+
+  # ---------------------------------------------------------------------------
+  # 2. Automated Model Puller Sidecar
+  # ---------------------------------------------------------------------------
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: arinova_ollama_loader
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Waiting for unified Ollama..."
+        while ! ollama list > /dev/null 2>&1; do sleep 2; done
+        echo "Loading models into shared Ollama volume..."
+        ollama pull llama3:8b
+        ollama pull nomic-embed-text
+        echo "Unified Ollama ready."
+    networks:
+      - arinova_shared_net
+
+  # ---------------------------------------------------------------------------
+  # 3. Arinova AI Brain Microservice API
+  # ---------------------------------------------------------------------------
+  brain-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arinova_ai_brain_api
+    restart: unless-stopped
+    ports:
+      - "5005:5005"
+    environment:
+      - NODE_ENV=production
+      - BRAIN_PORT=5005
+      - DB_URI=${DB_URI}
+      - DATABASE_URL=${DB_URI}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3:8b
+      - SOCKET_WEBHOOK_URL=http://arinova_socket_server:3001/api/webhook/ai-event
+    depends_on:
+      - ollama
+    networks:
+      - arinova_shared_net
+
+  # ---------------------------------------------------------------------------
+  # 4. Autonomous AI Supervisor Daemon
+  # ---------------------------------------------------------------------------
+  brain-daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arinova_ai_brain_daemon
+    restart: unless-stopped
+    command: ["node", "dist/ai/server.js"]
+    environment:
+      - NODE_ENV=production
+      - DB_URI=${DB_URI}
+      - DATABASE_URL=${DB_URI}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3:8b
+      - AGENT_ID=agent-service-001
+      - AGENT_NAME=Arinova Autonomous Supervisor
+    depends_on:
+      - brain-api
+    networks:
+      - arinova_shared_net
+
+volumes:
+  ollama_models:
+
+networks:
+  arinova_shared_net:
+    name: arinova_shared_net
+    external: true
