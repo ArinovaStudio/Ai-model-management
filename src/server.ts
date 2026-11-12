@@ -424,6 +424,10 @@ app.post("/api/project/ingest", async (req: Request, res: Response) => {
       ingested.targetProjectId
     );
 
+    void triggerActiveAllocations(ingested.targetProjectId).catch((err) => {
+      logger.warn(`[BRAIN-API] Background active allocation kickoff failed for ingested project ${ingested.targetProjectId}: ${err?.message}`);
+    });
+
     res.json({
       success: true,
       message: `Project cloned successfully into target ID: ${ingested.targetProjectId}`,
