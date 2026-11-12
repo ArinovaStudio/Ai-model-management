@@ -17,7 +17,7 @@ import { evaluate } from "./ai/reasoner";
 import { execute } from "./ai/executor";
 import { LOW_RISK_POLICY } from "./lib/agent-api";
 import { getProjectGroups } from "./lib/projectGroups";
-import { formatTelemetryEpisode, exportSftDataset } from "./ai/dataset-formatter";
+import { exportSftDataset } from "./ai/dataset-formatter";
 import { triggerActiveAllocations } from "./ai/events";
 
 const app = express();
@@ -348,8 +348,13 @@ app.post("/api/decisions/approve", async (req: Request, res: Response) => {
     });
 
     await logAction(
-      "DECISION_APPROVED",
-      `Decision ${decisionId} approved by ${approvedBy}`,
+      approvedBy || "Admin",
+      "decision_approved",
+      decision.id,
+      { decisionId, approvedBy },
+      true,
+      { status: "APPROVED" },
+      `Decision ${decisionId} approved by ${approvedBy || "Admin"}`,
       decision.projectId
     );
 
@@ -419,7 +424,12 @@ app.post("/api/project/ingest", async (req: Request, res: Response) => {
     }
 
     await logAction(
-      "PROJECT_INGESTED",
+      "agent-service-001",
+      "project_ingested",
+      ingested.targetProjectId,
+      { source_project_id, new_name, tasksCloned: ingested.records.tasks },
+      true,
+      { targetProjectId: ingested.targetProjectId },
       `Project "${source.name}" ingested as "${new_name}" (${ingested.records.tasks} tasks cloned).`,
       ingested.targetProjectId
     );
