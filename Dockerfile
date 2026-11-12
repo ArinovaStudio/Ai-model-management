@@ -26,3 +26,4 @@ COPY --from=builder /app/package*.json ./
 
 EXPOSE 5005
 CMD ["node", "dist/server.js"]
+

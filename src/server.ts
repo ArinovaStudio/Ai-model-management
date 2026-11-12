@@ -13,6 +13,8 @@ import {
 import { ingestProject } from "./ai/ingestion";
 import { logAction } from "./ai/audit";
 import { buildProjectContext } from "./ai/context";
+import { evaluate } from "./ai/reasoner";
+import { getProjectGroups } from "./lib/projectGroups";
 import { formatTelemetryEpisode, exportSftDataset } from "./ai/dataset-formatter";
 
 const app = express();
@@ -35,16 +37,18 @@ app.get("/api/agent/stealth-policy", async (req: Request, res: Response) => {
   try {
     const projectId = req.query.projectId as string;
     const policy = await getStealthPolicyAsync(projectId || null);
+    const resolvedPolicy = policy || {
+      projectId: projectId || "*",
+      isActive: false,
+      minConfidenceScore: 0.75,
+      modeType: "AUTO",
+      selectedTaskIds: [],
+      isException: false,
+    };
     res.json({
       success: true,
-      data: policy || {
-        projectId: projectId || "*",
-        isActive: false,
-        minConfidenceScore: 0.75,
-        modeType: "AUTO",
-        selectedTaskIds: [],
-        isException: false,
-      },
+      policy: resolvedPolicy,
+      data: resolvedPolicy,
     });
   } catch (err: any) {
     logger.error("[BRAIN-API] Error fetching stealth policy:", err);
@@ -74,11 +78,108 @@ app.post("/api/agent/stealth-policy", async (req: Request, res: Response) => {
   }
 });
 
+// ── Stealth Select Queue (Manual Candidate Pre-Approval) ───────────────────
+app.get("/api/agent/stealth-select-queue", async (req: Request, res: Response) => {
+  try {
+    const projectId = req.query.projectId as string;
+    if (!projectId) {
+      return res.status(400).json({ success: false, error: "projectId parameter is required" });
+    }
+
+    const allTasks = await db.task.findMany({
+      where: { projectId },
+      select: {
+        id: true,
+        title: true,
+        priority: true,
+        status: true,
+        dueDate: true,
+        tags: true,
+        userId: true,
+        createdAt: true,
+      },
+    });
+
+    if (allTasks.length === 0) {
+      return res.json({ success: true, tasks: [] });
+    }
+
+    const allDeps = await db.taskDependency.findMany({
+      where: { projectId },
+      select: {
+        taskId: true,
+        dependsOnTaskId: true,
+      },
+    });
+
+    const groups = getProjectGroups(allTasks, allDeps);
+    const flatSdlcTasks: any[] = [];
+    for (const group of groups) {
+      for (const t of group.tasks) {
+        flatSdlcTasks.push({ task: t, slotName: group.name });
+      }
+    }
+
+    const rawCandidates: any[] = [];
+    for (const item of flatSdlcTasks) {
+      const t = item.task;
+      const isUnassigned = !t.userId && t.status !== "completed" && t.status !== "done" && t.status !== "assigned";
+      if (isUnassigned) {
+        rawCandidates.push(item);
+        if (rawCandidates.length >= 8) break;
+      }
+    }
+
+    if (rawCandidates.length === 0) {
+      return res.json({ success: true, tasks: [] });
+    }
+
+    const context = await buildProjectContext(projectId);
+    const candidateTasks = [];
+
+    for (const item of rawCandidates) {
+      const t = item.task;
+      let score = 0.85;
+      let recommendedAssignee = null;
+      try {
+        const round = await evaluate(context, { taskId: t.id, runLlm: false });
+        const topRec = round.assignment?.ranked[0] ?? null;
+        if (topRec) {
+          score = topRec.score;
+          recommendedAssignee = topRec.name;
+        }
+      } catch {
+        // Fallback to default score if context is transiently sparse
+      }
+
+      candidateTasks.push({
+        id: t.id,
+        title: t.title,
+        priority: t.priority,
+        dueDate: t.dueDate ? (t.dueDate instanceof Date ? t.dueDate.toISOString() : t.dueDate) : null,
+        tags: t.tags ?? [],
+        isReady: true,
+        slotName: item.slotName,
+        score,
+        recommendedAssignee,
+      });
+    }
+
+    res.json({ success: true, tasks: candidateTasks });
+  } catch (error: any) {
+    logger.error("[BRAIN-API] Error fetching stealth select queue:", error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to fetch select queue",
+    });
+  }
+});
+
 // ── Universal Stealth Mode Routes ───────────────────────────────────────────
 app.get("/api/agent/universal-stealth", (req: Request, res: Response) => {
   try {
     const config = getUniversalConfig();
-    res.json({ success: true, data: config });
+    res.json({ success: true, config, data: config });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -227,3 +328,4 @@ void initStealthPoliciesFromDb().then(() => {
     logger.info(`🚀 [Arinova-AI-BRAIN] Autonomous Intelligence Microservice running on port ${PORT}`);
   });
 });
+

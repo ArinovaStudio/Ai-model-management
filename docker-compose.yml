@@ -18,7 +18,10 @@ services:
               count: all
               capabilities: [gpu]
     networks:
-      - arinova_shared_net
+      arinova_shared_net:
+        aliases:
+          - arinova_unified_ollama
+          - ollama
 
   # ---------------------------------------------------------------------------
   # 2. Automated Model Puller Sidecar
@@ -97,3 +100,4 @@ networks:
   arinova_shared_net:
     name: arinova_shared_net
     external: true
+

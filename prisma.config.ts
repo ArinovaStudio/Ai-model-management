@@ -7,3 +7,4 @@ export default defineConfig({
     url: env("DB_URI") || env("DATABASE_URL"),
   },
 });
+
