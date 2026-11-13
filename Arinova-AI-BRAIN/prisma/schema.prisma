@@ -1,0 +1,1125 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                 String                 @id @default(cuid())
+  employeeId         String?                @unique
+  email              String                 @unique
+  name               String
+  password           String
+  workingAs          String?
+  department         String?
+  phone              String?
+  bio                String?
+  image              String?
+  dob                String?
+  isLogin            Boolean                @default(false)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  faceDescriptor     String?
+  isDev              Boolean?               @default(false)
+  githubProfile      String?
+  joiningDate        DateTime?
+  subRoleId          String?
+  bankDetails        BankDetails?
+  breaks             Break[]
+  calendarEvents     CalendarEvent[]
+  createdChannels    ChatChannel[]          @relation("ChatChannelCreator")
+  chatMemberships    ChatChannelMember[]    @relation("ChatChannelMembers")
+  chatMessages       ChatMessage[]          @relation("ChatMessageSender")
+  actedNotifications ChatNotification[]     @relation("ActorNotifications")
+  chatNotifications  ChatNotification[]     @relation("ChatNotifications")
+  chatReactions      ChatReaction[]         @relation("ChatReactionUser")
+  clockRecords       ClockRecord[]
+  comments           Comment[]
+  sentDMs            DirectMessage[]        @relation("DMFrom")
+  receivedDMs        DirectMessage[]        @relation("DMTo")
+  dmReactions        DirectMsgReaction[]    @relation("DMReactionUser")
+  Documents          Docs[]                 @relation("UserDocuments")
+  documentAccess     DocumentAccess[]
+  featureRequests    FeatureRequest[]
+  createdMeetings    Meeting[]              @relation("CreatedMeetings")
+  meetingAssigned    MeetingAttendee[]
+  meetingRequests    MeetingRequest[]
+  memo               Memo[]
+  milestones         Milestone[]
+  createdGroups      MultiTaskGroup[]       @relation("GroupCreator")
+  multiTaskUsers     MultiTaskUser[]
+  notifications      Notification[]
+  paymentMethods     PaymentMethod[]
+  createdPaymentReqs PaymentRequest[]       @relation("PaymentRequestsBy")
+  paymentRequests    PaymentRequest[]       @relation("PaymentRequestsTo")
+  paymentTickets     PaymentTicket[]
+  payouts            Payout[]
+  payoutSchedule     PayoutSchedule?
+  projectinfo        ProjectInfo[]
+  projectMembers     ProjectMember[]
+  tasks              Task[]
+  ticketMessages     TicketMessage[]
+  todoTasks          TodoTask[]
+  subRole            SubRole?               @relation(fields: [subRoleId], references: [id])
+  leaves             UserLeaves?
+  PreferredTimezone  UserPreferredTimezone?
+  timezone           UserTimezone?
+  workHours          WorkHours[]
+  leaveRequests      leaveReq[]
+  workDone           workDone[]
+}
+
+model Docs {
+  id        String   @id @default(cuid())
+  title     String
+  fileUrl   String
+  createdAt DateTime @default(now())
+  userId    String?
+  projectId String?
+  Projects  Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  User      User?    @relation("UserDocuments", fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model well {
+  id       String @id @default(cuid())
+  title    String
+  answer   String
+  category String @default("Tips")
+  likes    Int    @default(0)
+  dislikes Int    @default(0)
+}
+
+model WaterIntake {
+  id        String   @id @default(cuid())
+  userId    String
+  amount    Int      @default(0)
+  date      DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, date])
+}
+
+model feedback {
+  id          String  @id @default(cuid())
+  type        String
+  rating      Int     @default(0)
+  desc        String
+  isAnynonyms Boolean @default(false)
+  byName      String
+  byEmpId     String
+  employeeId  String?
+}
+
+model clientfeedback {
+  id      String  @id @default(cuid())
+  type    String
+  project String?
+  message String
+  byName  String
+  userId  String
+  email   String?
+}
+
+model leaveReq {
+  id         String   @id @default(cuid())
+  status     STATUS   @default(Pending)
+  empName    String
+  empId      String
+  department String
+  leaveType  String
+  startDate  DateTime
+  endDate    DateTime
+  reason     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Analytics {
+  id            String   @id @default(cuid())
+  quoteText     String?
+  quoteAuthor   String?
+  totalProjects Int      @default(0)
+  pendingTasks  Int      @default(0)
+  design        Int      @default(0)
+  development   Int      @default(0)
+  marketing     Int      @default(0)
+  sales         Int      @default(0)
+  support       Int      @default(0)
+  analytics     Int      @default(0)
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+}
+
+model UserTimezone {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  code      String
+  name      String
+  hours     String
+  offset    String
+  startTime String
+  endTime   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserLeaves {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  remaining Int      @default(8)
+  emergency Int      @default(3)
+  sick      Int      @default(5)
+  total     Int      @default(8)
+
+  month     Int?
+  year      Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+model ClockRecord {
+  id        String       @id @default(cuid())
+  userId    String
+  clockIn   DateTime?
+  clockOut  DateTime?
+  date      DateTime     @default(now())
+  status    CLOCK_STATUS @default(NOT_LOGGED_IN)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+}
+
+model WorkHours {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime
+  hours     Float
+  clockIn   String
+  clockOut  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  summary   String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+}
+
+model Break {
+  id        String     @id @default(cuid())
+  userId    String
+  type      BREAK_TYPE
+  startTime DateTime
+  endTime   DateTime?
+  duration  Int?
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startTime])
+}
+
+model Task {
+  id             String          @id @default(cuid())
+  title          String
+  description    String
+  assignee       String
+  assigneeAvatar String?
+  priority       String
+  dueDate        DateTime
+  employeeId     String?
+  tags           String[]
+  attachments    Json[]          @default([])
+  status         String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  projectId      String?
+  userId         String?
+  comments       Comment[]
+  multiTaskUsers MultiTaskUser[]
+  Project        Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user           User?           @relation(fields: [userId], references: [id])
+}
+
+model GroupingTask {
+  id    String  @id @default(cuid())
+  name  String?
+  task  Json?
+  users Json?
+}
+
+model Report {
+  id         String   @id @default(cuid())
+  message    String
+  taskId     String?
+  reportedBy String?
+  createdAt  DateTime @default(now())
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  taskId    String
+  userId    String
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Project {
+  id                String             @id @default(cuid())
+  name              String
+  summary           String?
+  priority          String?
+  basicDetails      String?
+  status            Int                @default(0)
+  createdAt         DateTime           @default(now())
+  progress          Int                @default(0)
+  repository        String?
+  currentPhase      String?            @default("Design")
+  assets            Asset[]
+  designSystem      DesignSystem?
+  docs              Docs[]
+  featureRequests   FeatureRequest[]
+  latestUpdates     LatestUpdate[]
+  meetingRequest    MeetingRequest[]
+  milestones        Milestone[]
+  paymentRequests   PaymentRequest[]
+  planDocs          PlanDocs[]
+  projectInfo       ProjectInfo?
+  members           ProjectMember[]
+  projectTechnology ProjectTechnology?
+  roadmaps          Roadmap[]
+  tasks             Task[]
+}
+
+model LatestUpdate {
+  id        String   @id @default(cuid())
+  title     String
+  date      String
+  projectId String
+  createdBy String
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ProjectMember {
+  id        String  @id @default(cuid())
+  projectId String
+  userId    String
+  role      String?
+  isLeader  Boolean @default(false)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Milestone {
+  id          String           @id @default(cuid())
+  projectId   String
+  title       String
+  description String?
+  dueDate     DateTime
+  status      MILESTONE_STATUS @default(PENDING)
+  createdBy   String
+  createdAt   DateTime         @default(now())
+  creator     User             @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Asset {
+  id         String   @id @default(cuid())
+  projectId  String
+  type       String
+  url        String
+  publicId   String?
+  title      String
+  createdAt  DateTime @default(now())
+  uploadedBy String?
+  userImage  String?
+  liveUrl    String?
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Ticket {
+  id               String   @id @default(cuid())
+  projectId        String
+  reportedBy       String
+  reason           String
+  blockedTeammates String[] @default([])
+  createdAt        DateTime @default(now())
+}
+
+model UsefulTip {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  user      String
+  tip       String
+  createdAt DateTime @default(now())
+}
+
+model MeetingRequest {
+  id          String   @id @default(cuid())
+  clientId    String
+  reason      String
+  meetDate    DateTime
+  meetTime    String
+  status      String   @default("pending")
+  duration    Int
+  startedAt   DateTime?          // ADD THIS
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  projectId   String?
+  createdBy   String?
+  meetingLink String?
+  client      User     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  memo        Memo[]
+}
+
+model Memo {
+  id             String         @id @default(cuid())
+  meetingId      String
+  message        String
+  clientId       String
+  totaltime      String
+  createdAt      DateTime       @default(now())
+  client         User           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  meetingRequest MeetingRequest @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+model FeatureRequest {
+  id          String   @id @default(cuid())
+  clientId    String
+  projectId   String
+  title       String
+  description String
+  createdAt   DateTime @default(now())
+  status      String   @default("pending")
+  client      User     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ProjectInfo {
+  id              String   @id @default(cuid())
+  projectId       String   @unique
+  budget          Float
+  clientName      String?
+  projectType     String
+  startDate       DateTime
+  deadline        DateTime
+  supervisorAdmin String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  paidAmount      Float?   @default(0)
+  Project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  supervisor      User?    @relation(fields: [supervisorAdmin], references: [id])
+}
+
+model Certificate {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  imageUrl    String
+  publicId    String
+  assignedTo  String?
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Meeting {
+  id          String            @id @default(cuid())
+  title       String
+  description String            @db.VarChar(150)
+  scheduledAt DateTime
+  meetingLink String?
+  status      MEETING_STATUS    @default(SCHEDULED)
+  startedAt   DateTime?
+  endedAt     DateTime?
+  createdById String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  createdBy   User              @relation("CreatedMeetings", fields: [createdById], references: [id], onDelete: Cascade)
+  attendees   MeetingAttendee[]
+}
+
+model MeetingAttendee {
+  id        String  @id @default(cuid())
+  meetingId String
+  userId    String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, userId])
+}
+
+model SharedQuote {
+  id         String   @id @default(cuid())
+  quote      String
+  author     String
+  userId     String
+  isApproved Boolean  @default(false)
+  isSelected Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model CalendarEvent {
+  id        String    @id @default(cuid())
+  title     String
+  date      DateTime
+  type      EventType
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  isGlobal  Boolean   @default(true)
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([isGlobal, date])
+}
+
+model PerformanceRating {
+  id            String   @id @default(cuid())
+  newLearnings  Int      @default(5)
+  speed         Int      @default(5)
+  workQuality   Int      @default(5)
+  leaves        Int      @default(5)
+  communication Int      @default(5)
+  feedback      Int      @default(5)
+  ratedBy       String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  userId        String
+}
+
+model TodoTask {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  completed   Boolean  @default(false)
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, completed])
+}
+
+model OtpVerification {
+  id        String   @id @default(cuid())
+  email     String
+  otp       String
+  type      OtpType
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email, type])
+}
+
+model PlanDocs {
+  id        String           @id @default(nanoid())
+  name      String           @default("United")
+  content   String
+  createdBy String
+  createdAt DateTime         @default(now())
+  projectId String?
+  access    DocumentAccess[]
+  project   Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model DocumentAccess {
+  id     String   @id @default(nanoid())
+  docId  String
+  userId String
+  role   String?
+  doc    PlanDocs @relation(fields: [docId], references: [id], onDelete: Cascade)
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([docId, userId])
+}
+
+model workDone {
+  id          String   @id @default(nanoid())
+  projectId   String
+  title       String
+  description String
+  priority    String
+  dueDate     DateTime
+  tags        String[]
+  userId      String
+  createdAt   DateTime @default(now())
+  taskId      String   @unique
+  updatedAt   DateTime @updatedAt
+  completedBy User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DesignSystem {
+  id               String   @id @default(uuid())
+  projectId        String   @unique
+  brandName        String
+  colors           String[]
+  fonts            Json
+  designType       String[]
+  layoutStyle      Json
+  contentTone      String[]
+  visualGuidelines Json
+  theme            String[]
+  brandFeel        String
+  keyPages         String[]
+  uniqueness       Json
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ProjectTechnology {
+  id        String   @id @default(cuid())
+  projectId String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tech      Json[]
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model RiskBlockage {
+  id        String   @id @default(cuid())
+  projectId String
+  clientId  String
+  riskTitle String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  image     String?
+  type      String?
+  meta      Json?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model PaymentMethod {
+  id                String       @id @default(cuid())
+  userId            String
+  type              PAYMENT_TYPE
+  upiId             String?
+  accountNumber     String?
+  ifscCode          String?
+  bankName          String?
+  accountHolderName String?
+  isPreferred       Boolean      @default(false)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Payout {
+  id              String         @id @default(cuid())
+  userId          String
+  transactionId   String         @unique
+  amount          Float
+  paymentDate     DateTime
+  paymentMethod   PAYMENT_TYPE
+  sentFrom        String
+  paymentProofUrl String?
+  status          PAYOUT_STATUS  @default(PENDING)
+  isReceived      Boolean        @default(false)
+  receivedAt      DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  queries         PaymentQuery[]
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, paymentDate])
+}
+
+model PaymentQuery {
+  id          String         @id @default(cuid())
+  payoutId    String
+  userId      String
+  status      QUERY_STATUS   @default(OPEN)
+  subject     String
+  description String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  payout      Payout         @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  messages    QueryMessage[]
+
+  @@index([payoutId])
+  @@index([userId, status])
+}
+
+model QueryMessage {
+  id         String       @id @default(cuid())
+  queryId    String
+  senderId   String
+  senderRole ROLES
+  message    String
+  createdAt  DateTime     @default(now())
+  query      PaymentQuery @relation(fields: [queryId], references: [id], onDelete: Cascade)
+
+  @@index([queryId])
+}
+
+model PayoutSchedule {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  nextPayoutDate DateTime
+  lastPayoutDate DateTime?
+  payoutDay      Int
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  nextAmount     Float?
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([nextPayoutDate])
+}
+
+model PaymentTicket {
+  id               String          @id @default(cuid())
+  paymentRequestId String          @unique
+  description      String
+  raisedById       String
+  status           TICKET_STATUS   @default(OPEN)
+  createdAt        DateTime        @default(now())
+  resolvedAt       DateTime?
+  closedAt         DateTime?
+  paymentRequest   PaymentRequest  @relation(fields: [paymentRequestId], references: [id], onDelete: Cascade)
+  raisedBy         User            @relation(fields: [raisedById], references: [id])
+  messages         TicketMessage[]
+
+  @@index([paymentRequestId])
+}
+
+model TicketMessage {
+  id        String        @id @default(cuid())
+  ticketId  String
+  senderId  String
+  message   String
+  createdAt DateTime      @default(now())
+  sender    User          @relation(fields: [senderId], references: [id])
+  ticket    PaymentTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([senderId])
+}
+
+model PaymentRequest {
+  id            String                 @id @default(cuid())
+  requestedToId String
+  requestedById String
+  title         String
+  description   String?
+  amount        Decimal                @db.Decimal(10, 2)
+  currency      String                 @default("INR")
+  paymentMethod PaymentMode?           @default(MANUAL)
+  gateway       PaymentGateway?        @default(RAZORPAY)
+  status        PAYMENT_REQUEST_STATUS @default(PENDING)
+  invoice       String?
+  extensionDate DateTime?
+  dueDate       DateTime
+  paidAt        DateTime?
+  transactionId String?
+  paymentProof  String?
+  paymentDate   DateTime?
+  hasClientPaid Boolean                @default(false)
+  isPaidMarked  Boolean                @default(false)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  projectId     String?
+  project       Project?               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestedBy   User                   @relation("PaymentRequestsBy", fields: [requestedById], references: [id])
+  requestedTo   User                   @relation("PaymentRequestsTo", fields: [requestedToId], references: [id])
+  ticket        PaymentTicket?
+
+  @@index([requestedToId])
+  @@index([requestedById])
+}
+
+model BankDetails {
+  id                String @id @default(cuid())
+  userId            String @unique
+  accountHolderName String
+  bankName          String
+  accountNumber     String
+  ifscCode          String
+  branchName        String
+  upiId             String
+  user              User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Roadmap {
+  id          String              @id @default(cuid())
+  title       String
+  description String?
+  isPrivate   Boolean             @default(false)
+  createdById String
+  projectId   String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  lastEditBy  String?
+  lastEditAt  DateTime?
+  tldrawData  Json?               // holds simple-mind-map data (name is legacy/misleading)
+  canvasData  Json?               // NEW: real tldraw snapshot
+  activeMode  String              @default("mindmap") // NEW: "mindmap" | "canvas"
+  project     Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignments RoadmapAssignment[]
+  comments    RoadmapComment[]
+  permissions RoadmapPermission[]
+
+  @@index([createdById])
+  @@index([projectId])
+}
+
+model RoadmapAssignment {
+  id         String   @id @default(cuid())
+  roadmapId  String
+  userId     String
+  assignedBy String
+  assignedAt DateTime @default(now())
+  roadmap    Roadmap  @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+
+  @@unique([roadmapId, userId])
+  @@index([userId])
+}
+
+model MultiTaskGroup {
+  id        String          @id @default(cuid())
+  createdBy String
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  creator   User            @relation("GroupCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  users     MultiTaskUser[]
+}
+
+model RoadmapPermission {
+  id         String             @id @default(cuid())
+  roadmapId  String
+  userId     String
+  permission ROADMAP_PERMISSION @default(VIEW)
+  grantedBy  String
+  grantedAt  DateTime           @default(now())
+  roadmap    Roadmap            @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+
+  @@unique([roadmapId, userId])
+  @@index([userId])
+}
+
+model RoadmapComment {
+  id        String   @id @default(cuid())
+  roadmapId String
+  userId    String
+  comment   String
+  nodeId    String?
+  isMarked  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  roadmap   Roadmap  @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+
+  @@index([roadmapId])
+  @@index([userId])
+}
+
+model MultiTaskUser {
+  id         String         @id @default(cuid())
+  groupId    String
+  taskId     String
+  userId     String
+  name       String?
+  role       String?
+  department String?
+  label      String?
+  createdAt  DateTime       @default(now())
+  group      MultiTaskGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  task       Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+}
+
+model Navigation {
+  id      String  @id @default(cuid())
+  title   String?
+  package String  @unique
+  menu    Json
+}
+
+model Notificationlist {
+  id           String  @id @default(cuid())
+  title        String?
+  package      String? @unique
+  notification Json
+}
+
+model Role {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  subRoles  SubRole[]
+}
+
+model SubRole {
+  id        String   @id @default(cuid())
+  name      String
+  roleId    String?
+  createdAt DateTime @default(now())
+  role      Role?    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  users     User[]
+}
+
+model UserPreferredTimezone {
+  id     String @id @default(cuid())
+  userId String @unique
+  code   String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ChatChannel {
+  id          String              @id @default(cuid())
+  name        String              @unique
+  description String?
+  isPrivate   Boolean             @default(false)
+  createdBy   String
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  creator     User                @relation("ChatChannelCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  members     ChatChannelMember[]
+  messages    ChatMessage[]
+}
+
+model ChatChannelMember {
+  id        String      @id @default(cuid())
+  channelId String
+  userId    String
+  role      String      @default("member")
+  joinedAt  DateTime    @default(now())
+  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user      User        @relation("ChatChannelMembers", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+}
+
+model ChatMessage {
+  id          String           @id @default(cuid())
+  content     String
+  channelId   String?
+  senderId    String
+  parentId    String?
+  editedAt    DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime         @default(now())
+  attachments ChatAttachment[]
+  channel     ChatChannel?     @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  sender      User             @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  reactions   ChatReaction[]
+}
+
+model ChatReaction {
+  id        String      @id @default(cuid())
+  emoji     String
+  userId    String
+  messageId String
+  createdAt DateTime    @default(now())
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User        @relation("ChatReactionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+}
+
+model ChatAttachment {
+  id        String      @id @default(cuid())
+  url       String
+  filename  String
+  mimeType  String
+  size      Int
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+}
+
+model DirectMessage {
+  id          String              @id @default(cuid())
+  content     String
+  fromUserId  String
+  toUserId    String
+  editedAt    DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime            @default(now())
+  attachments DMAttachment[]
+  from        User                @relation("DMFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  to          User                @relation("DMTo", fields: [toUserId], references: [id], onDelete: Cascade)
+  reactions   DirectMsgReaction[]
+}
+
+model DMAttachment {
+  id       String        @id @default(cuid())
+  url      String
+  filename String
+  mimeType String
+  size     Int
+  dmId     String
+  dm       DirectMessage @relation(fields: [dmId], references: [id], onDelete: Cascade)
+}
+
+model DirectMsgReaction {
+  id        String        @id @default(cuid())
+  emoji     String
+  userId    String
+  dmId      String
+  createdAt DateTime      @default(now())
+  dm        DirectMessage @relation(fields: [dmId], references: [id], onDelete: Cascade)
+  user      User          @relation("DMReactionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([dmId, userId, emoji])
+}
+
+model ChatReadReceipt {
+  id           String   @id @default(cuid())
+  userId       String
+  channelId    String?
+  dmWithUserId String?
+  lastReadAt   DateTime @default(now())
+
+  @@unique([userId, channelId])
+}
+
+model ChatNotification {
+  id        String   @id @default(cuid())
+  userId    String
+  actorId   String?
+  type      String
+  title     String
+  message   String?
+  channelId String?
+  messageId String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  actor     User?    @relation("ActorNotifications", fields: [actorId], references: [id])
+  user      User     @relation("ChatNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
+
+enum ROLES {
+  ADMIN
+  CLIENT
+  EMPLOYEE
+  MANAGER
+  HRMANAGER
+  FINANCE
+  PROJECTMANAGER
+}
+
+enum STATUS {
+  Requested
+  Pending
+  Rejected
+  Approved
+}
+
+enum CLOCK_STATUS {
+  NOT_LOGGED_IN
+  CLOCKED_IN
+  CLOCKED_OUT
+  ON_BREAK
+}
+
+enum BREAK_TYPE {
+  COFFEE
+  MEAL
+  EMERGENCY
+}
+
+enum ROADMAP_PERMISSION {
+  VIEW
+  EDIT
+  FULL
+}
+
+enum EventType {
+  HOLIDAY
+  WORKDAY
+}
+
+enum OtpType {
+  SIGNUP
+  FORGOT_PASSWORD
+  LOGIN
+}
+
+enum MILESTONE_STATUS {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DELAYED
+}
+
+enum PAYMENT_TYPE {
+  UPI
+  BANK_ACCOUNT
+}
+
+enum PAYOUT_STATUS {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum QUERY_STATUS {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum PaymentMode {
+  GATEWAY
+  MANUAL
+}
+
+enum PaymentGateway {
+  RAZORPAY
+  PAYU
+}
+
+enum PAYMENT_REQUEST_STATUS {
+  PENDING
+  PAID
+  CANCELLED
+  NOT_RECEIVED
+}
+
+enum TICKET_STATUS {
+  OPEN
+  RESOLVED
+  CLOSED
+}
+
+enum MEETING_STATUS {
+  SCHEDULED
+  LIVE
+  ENDED
+}
