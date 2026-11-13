@@ -602,6 +602,42 @@ app.post("/api/agent/request-update", async (req: Request, res: Response) => {
   }
 });
 
+// ── Agent Chat Inference (Proxy to central Ollama) ─────────────────────────
+app.post("/api/chat", async (req: Request, res: Response) => {
+  try {
+    const { messages, model } = req.body;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ success: false, error: "Missing or invalid 'messages' array" });
+    }
+
+    const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+    const ollamaModel = model || process.env.OLLAMA_MODEL || "llama3:8b";
+
+    const response = await fetch(`${ollamaBaseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: ollamaModel,
+        messages,
+        stream: false,
+      }),
+    });
+
+    if (!response.ok) {
+      logger.error(`[BRAIN-API] Ollama responded with HTTP ${response.status}`);
+      return res.status(502).json({ success: false, error: `Ollama responded with HTTP ${response.status}` });
+    }
+
+    const body = (await response.json()) as { message?: { content?: string } };
+    const reply = body.message?.content?.trim() || "";
+
+    return res.json({ success: true, reply });
+  } catch (err: any) {
+    logger.error("[BRAIN-API] Chat error:", err);
+    return res.status(500).json({ success: false, error: err.message || "Failed to process chat" });
+  }
+});
+
 // ── SFT Telemetry Dataset Export ────────────────────────────────────────────
 app.get("/api/agent/export-dataset", async (req: Request, res: Response) => {
   try {
