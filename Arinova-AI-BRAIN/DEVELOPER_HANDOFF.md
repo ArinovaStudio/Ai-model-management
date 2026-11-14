@@ -130,8 +130,7 @@ BRAIN_PORT=5005
 PORT=5005
 
 # Shared Neon PostgreSQL Database URL
-DATABASE_URL=postgresql://neondb_owner:npg_NtvVI2fjC6XH@ep-lingering-glade-a1srlv0e.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&connection_limit=25&pool_timeout=30
-DB_URI=postgresql://neondb_owner:npg_NtvVI2fjC6XH@ep-lingering-glade-a1srlv0e.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&connection_limit=25&pool_timeout=30
+
 
 # Unified Ollama Host (Use http://ollama:11434 in Docker, http://localhost:11434 for local dev)
 OLLAMA_BASE_URL=http://ollama:11434
