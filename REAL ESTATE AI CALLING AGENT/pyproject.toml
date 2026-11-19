@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "realestate-ai"
+version = "0.1.0"
+description = "Local-First Real Estate AI Voice Agent"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Aseem" }
+]
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "websockets>=14.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "python-multipart>=0.0.20",
+    "httpx>=0.28.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "psycopg2-binary>=2.9.10",
+    "pgvector>=0.3.6",
+    "alembic>=1.14.0",
+    "caldav>=1.4.0",
+    "redis>=5.2.0",
+    "faster-whisper>=1.1.0",
+    "piper-tts>=1.2.0",
+    "soundfile>=0.13.0",
+    "numpy>=2.0.0",
+    "webrtcvad-wheels>=2.0.14"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0"
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]

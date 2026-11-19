@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<document type="freeswitch/xml">
+  <!-- RealEstateAI Master FreeSWITCH Configuration -->
+  <X-PRE-PROCESS cmd="include" data="vars.xml"/>
+
+  <section name="configuration" description="Various Configuration">
+    <X-PRE-PROCESS cmd="include" data="autoload_configs/*.xml"/>
+  </section>
+
+  <section name="dialplan" description="Regex/XML Dialplan">
+    <X-PRE-PROCESS cmd="include" data="dialplan/*.xml"/>
+  </section>
+
+  <section name="directory" description="User Directory">
+    <!-- Default minimal directory context -->
+    <context name="default">
+      <user id="1000">
+        <params>
+          <param name="password" value="1234"/>
+        </params>
+        <variables>
+          <variable name="accountcode" value="1000"/>
+          <variable name="user_context" value="default"/>
+        </variables>
+      </user>
+    </context>
+  </section>
+</document>

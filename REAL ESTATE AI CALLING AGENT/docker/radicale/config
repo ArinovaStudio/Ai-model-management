@@ -1,0 +1,16 @@
+[server]
+hosts = 0.0.0.0:5232
+max_connections = 20
+max_content_length = 10000000
+timeout = 30
+
+[auth]
+type = htpasswd
+htpasswd_filename = /config/users
+htpasswd_encryption = plain
+
+[storage]
+filesystem_folder = /data/collections
+
+[logging]
+level = info

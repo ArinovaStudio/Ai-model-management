@@ -1,0 +1,198 @@
+version: "3.8"
+
+# ==============================================================================
+# RealEstateAI - Production Docker Compose Orchestration
+# 100% Self-Hosted, Sovereign Infrastructure with Internal GPU Acceleration
+# Zero Cloud Dependencies | Low-Latency Telephony Edge | Automated Reliability
+# ==============================================================================
+
+networks:
+  realestate_net:
+    name: realestate_net
+    driver: bridge
+
+volumes:
+  postgres_prod_data:
+    name: realestate_postgres_prod_data
+  radicale_prod_data:
+    name: realestate_radicale_prod_data
+  redis_prod_data:
+    name: realestate_redis_prod_data
+  ollama_prod_data:
+    name: realestate_ollama_prod_data
+  freeswitch_recordings:
+    name: realestate_freeswitch_recordings
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL 16 + pgvector (Relational Ledger & Vector Embeddings)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: realestate_postgres
+    restart: unless-stopped
+    networks:
+      - realestate_net
+    # Tuned memory and planner parameters for dedicated server deployment
+    command: >
+      postgres
+      -c shared_buffers=1GB
+      -c work_mem=64MB
+      -c maintenance_work_mem=256MB
+      -c effective_cache_size=3GB
+      -c max_connections=200
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ProdPostgresSecurePass2026!}
+      POSTGRES_DB: ${POSTGRES_DB:-realestate_ai}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-realestate_ai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------------------------------
+  # 2. Radicale CalDAV Calendar Service (Production Physical Visit Ledger)
+  # ----------------------------------------------------------------------------
+  radicale:
+    image: tomsquest/docker-radicale:latest
+    container_name: realestate_caldav
+    restart: unless-stopped
+    networks:
+      - realestate_net
+    ports:
+      - "5232:5232"
+    volumes:
+      - radicale_prod_data:/data
+      - ./docker/radicale/config:/config/config:ro
+      - ./docker/radicale/users:/config/users:ro
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://localhost:5232/.web/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ----------------------------------------------------------------------------
+  # 3. Redis Ephemeral Cache & Fast Key-Value Store
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: realestate_redis
+    restart: unless-stopped
+    networks:
+      - realestate_net
+    command: redis-server --save 60 1 --loglevel notice
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_prod_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ----------------------------------------------------------------------------
+  # 4. Ollama Local Sovereign LLM Engine (Internal Hardware GPU Reservation)
+  # ----------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: realestate_ollama
+    restart: unless-stopped
+    networks:
+      - realestate_net
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_prod_data:/root/.ollama
+    # Strict NVIDIA GPU reservation for Llama 3 8B / 13B inference
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ----------------------------------------------------------------------------
+  # 5. FreeSWITCH VoIP PBX Container (SIP Trunking Edge & WebRTC Audio Gateway)
+  # ----------------------------------------------------------------------------
+  freeswitch:
+    build:
+      context: .
+      dockerfile: docker/freeswitch/Dockerfile
+    container_name: realestate_freeswitch
+    restart: unless-stopped
+    networks:
+      - realestate_net
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "5080:5080/udp"
+      - "5080:5080/tcp"
+      - "8021:8021/tcp"
+      - "16384-16484:16384-16484/udp"
+    volumes:
+      - ./docker/freeswitch/conf:/etc/freeswitch:ro
+      - freeswitch_recordings:/var/lib/freeswitch/recordings
+    depends_on:
+      - voice-agent-app
+
+  # ----------------------------------------------------------------------------
+  # 6. Unified RealEstateAI FastAPI Voice Agent Application (Production Workers)
+  # ----------------------------------------------------------------------------
+  voice-agent-app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.app
+    container_name: realestate_voice_agent
+    restart: unless-stopped
+    networks:
+      - realestate_net
+    env_file:
+      - config/production.env
+    command: >
+      uvicorn src.main:app
+      --host 0.0.0.0
+      --port 8000
+      --workers 1
+      --log-level info
+      --no-access-log
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./storage:/app/storage
+      - ./models:/app/models
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      radicale:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

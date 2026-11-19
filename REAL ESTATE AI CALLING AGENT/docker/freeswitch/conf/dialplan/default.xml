@@ -1,0 +1,47 @@
+<include>
+  <!-- Default Dialplan: RealEstateAI Autonomous Agent Audio Pipeline -->
+  <context name="default">
+
+    <!-- Health / Loopback echo test -->
+    <extension name="echo_test">
+      <condition field="destination_number" expression="^9196$">
+        <action application="answer"/>
+        <action application="echo"/>
+      </condition>
+    </extension>
+
+    <!-- Main Inbound AI Agent Ingestion Route -->
+    <extension name="realestate_ai_agent">
+      <condition field="destination_number" expression="^(.*)$">
+        <!-- Answer SIP call immediately to open audio stream -->
+        <action application="answer"/>
+        <action application="sleep" data="250"/>
+
+        <!-- Jitter Buffer & Audio Optimization for Whisper STT -->
+        <action application="set" data="jitterbuffer_msec=20"/>
+        <action application="set" data="rtp_secure_media=optional"/>
+        <action application="set" data="read_codec=OPUS"/>
+        <action application="set" data="write_codec=OPUS"/>
+
+        <!-- Notify FastAPI backend of incoming call initiation -->
+        <!-- Session ID is FreeSWITCH Call UUID -->
+        <action application="log" data="INFO RealEstateAI: Inbound Call UUID=${uuid} from Phone=${caller_id_number}"/>
+
+        <!-- Full-Duplex Audio Fork / WebRTC Stream to Voice Agent App -->
+        <!-- Bridges bidirectional raw 16kHz audio stream directly to the FastAPI WebSocket -->
+        <!-- Format: ws://voice-agent-app:8000/ws/audio/<UUID>?phone=<CALLER_PHONE> -->
+        <action application="set" data="agent_ws_url=$${ai_agent_ws_url}/${uuid}?phone=${caller_id_number}"/>
+        
+        <!-- Stream Audio via mod_audio_fork (or ESL bridge) -->
+        <action application="audio_fork" data="start ${agent_ws_url} 16k"/>
+
+        <!-- Keep channel open in parked state while AI agent converses with caller over WebSocket -->
+        <action application="park"/>
+
+        <!-- Post-hangup cleanup and status update -->
+        <action application="hangup" data="NORMAL_CLEARING"/>
+      </condition>
+    </extension>
+
+  </context>
+</include>

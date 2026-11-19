@@ -1,0 +1,21 @@
+<configuration name="switch.conf" description="Core Configuration">
+  <settings>
+    <!-- Server identification and core settings -->
+    <param name="colorize-console" value="true"/>
+    <param name="max-sessions" value="500"/>
+    <param name="sessions-per-second" value="30"/>
+    <param name="loglevel" value="info"/>
+
+    <!-- RTP Media Port Range -->
+    <!-- Tuned to match Docker port exposure 16384-16484 -->
+    <param name="rtp-start-port" value="16384"/>
+    <param name="rtp-end-port" value="16484"/>
+
+    <!-- Jitter buffer & timing parameters -->
+    <param name="rtp-enable-timer" value="true"/>
+    <param name="rtp-timer-name" value="soft"/>
+
+    <!-- Native sample rates -->
+    <param name="auto-create-schemas" value="true"/>
+  </settings>
+</configuration>

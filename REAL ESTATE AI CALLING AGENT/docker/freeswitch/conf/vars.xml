@@ -1,0 +1,26 @@
+<include>
+  <!-- Global variables for RealEstateAI FreeSWITCH Telephony Edge -->
+  <X-PRE-PROCESS cmd="set" data="domain=$${local_ip_v4}"/>
+  <X-PRE-PROCESS cmd="set" data="domain_name=$${domain}"/>
+  <X-PRE-PROCESS cmd="set" data="default_password=AgentSecureVoIP2026!"/>
+  
+  <!-- Codec preferences for Ultra-Low Latency Speech Streaming -->
+  <!-- OPUS provides high-fidelity 16kHz audio matching Faster-Whisper requirements -->
+  <!-- PCMU / PCMA standard fallback for legacy PSTN / SIP carriers -->
+  <X-PRE-PROCESS cmd="set" data="global_codec_prefs=OPUS,PCMU,PCMA,G722"/>
+  <X-PRE-PROCESS cmd="set" data="outbound_codec_prefs=OPUS,PCMU,PCMA"/>
+
+  <!-- RTP Media and NAT settings -->
+  <X-PRE-PROCESS cmd="set" data="external_rtp_ip=auto-nat"/>
+  <X-PRE-PROCESS cmd="set" data="external_sip_ip=auto-nat"/>
+  <X-PRE-PROCESS cmd="set" data="internal_rtp_ip=$${local_ip_v4}"/>
+  <X-PRE-PROCESS cmd="set" data="internal_sip_ip=$${local_ip_v4}"/>
+
+  <!-- SIP Profile Ports -->
+  <X-PRE-PROCESS cmd="set" data="internal_sip_port=5060"/>
+  <X-PRE-PROCESS cmd="set" data="external_sip_port=5080"/>
+
+  <!-- Agent WebSocket Audio Bridge URL -->
+  <X-PRE-PROCESS cmd="set" data="ai_agent_ws_url=ws://voice-agent-app:8000/ws/audio"/>
+  <X-PRE-PROCESS cmd="set" data="ai_agent_api_url=http://voice-agent-app:8000/api/calls"/>
+</include>

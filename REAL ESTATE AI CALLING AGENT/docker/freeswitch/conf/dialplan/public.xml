@@ -1,0 +1,13 @@
+<include>
+  <!-- Public Dialplan: Inbound Calls from SIP Trunk Gateway -->
+  <context name="public">
+    <extension name="inbound_trunk_call">
+      <!-- Match any inbound DID or dialed number -->
+      <condition field="destination_number" expression="^(.*)$">
+        <action application="set" data="domain_name=$${domain}"/>
+        <!-- Transfer directly into default AI voice agent dialplan -->
+        <action application="transfer" data="$1 XML default"/>
+      </condition>
+    </extension>
+  </context>
+</include>

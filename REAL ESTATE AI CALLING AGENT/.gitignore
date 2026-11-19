@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Environment variables & local secrets
+.env
+*.local
+
+# Storage & temporary audio files
+storage/audio_cache/*
+!storage/audio_cache/.gitkeep
+storage/documents/*
+!storage/documents/.gitkeep
+storage/caldav/*
+!storage/caldav/.gitkeep
+storage/backups/*
+!storage/backups/.gitkeep
+storage/*.wav
+
+# Local model weights
+models/
+
+# Docker volumes & logs
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+scratch/
